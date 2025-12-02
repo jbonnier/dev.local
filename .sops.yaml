@@ -1,0 +1,19 @@
+# Configuration SOPS
+# https://github.com/mozilla/sops
+
+creation_rules:
+  # Règle pour secrets.env
+  - path_regex: secrets\.env$
+    # Option 1 : AWS KMS (décommenter et configurer)
+    # kms: 'arn:aws:kms:ca-central-1:ACCOUNT_ID:key/KEY_ID'
+    
+    # Option 2 : Age (décommenter et configurer)
+    # age: 'age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p'
+    
+    # Pour tester sans KMS/Age (NON RECOMMANDÉ EN PRODUCTION)
+    # Générer une clé Age : age-keygen -o age-key.txt
+    # Puis utiliser la clé publique ci-dessus
+    
+    # CONFIGURATION TEMPORAIRE - À REMPLACER
+    # Décommentez l'une des options ci-dessus
+    encrypted_regex: '^(.*_PASSWORD|.*_SECRET|.*_KEY|.*_TOKEN|API_.*)$'

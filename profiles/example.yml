@@ -1,0 +1,89 @@
+# Exemple de profil de service
+# Copier ce fichier et l'adapter pour chaque nouveau service
+# Emplacement : profiles/<nom-service>.yml
+
+# ============================================
+# INFORMATIONS DU SERVICE
+# ============================================
+name: example-service
+description: "Service exemple pour démonstration"
+enabled: true  # false pour désactiver le service sans supprimer le profil
+
+# ============================================
+# CONFIGURATION DOCKER
+# ============================================
+service:
+  # Image Docker du service
+  image: ${EXAMPLE_IMAGE:-nginx:latest}
+  
+  # Nom du container
+  container_name: example-service
+  
+  # Ports exposés (format: "host:container")
+  ports:
+    - "8090:80"
+  
+  # Variables d'environnement
+  environment:
+    - ENV_MODE=docker
+    - SERVICE_NAME=example
+    # Référence à un secret depuis secrets.env
+    - EXAMPLE_API_KEY=${EXAMPLE_API_KEY:-default-key}
+  
+  # Volumes (optionnel)
+  volumes:
+    # - ./data:/app/data
+  
+  # Health check
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:80/"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 10s
+  
+  # Réseau (ajouté automatiquement si traefik est activé)
+  # networks:
+  #   - traefik-network
+
+# ============================================
+# CONFIGURATION TRAEFIK
+# ============================================
+traefik:
+  # Activer l'intégration Traefik
+  enabled: true
+  
+  # Préfixe de route (ex: /example -> http://localhost/example)
+  prefix: /example
+  
+  # Supprimer le préfixe avant de transmettre au service
+  strip_prefix: true
+  
+  # Port du service à exposer via Traefik
+  port: 80
+  
+  # Priorité de la route (optionnel, défaut: 10)
+  priority: 10
+  
+  # Middlewares additionnels (optionnel)
+  # middlewares:
+  #   - auth
+  #   - compress
+
+# ============================================
+# MÉTADONNÉES (optionnel)
+# ============================================
+metadata:
+  # Catégorie du service
+  category: web
+  
+  # Tags pour filtrage
+  tags:
+    - example
+    - demo
+  
+  # Documentation
+  docs_url: https://nginx.org/en/docs/
+  
+  # Mainteneur
+  maintainer: team@example.com

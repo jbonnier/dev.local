@@ -1,0 +1,25 @@
+# Secrets en clair (ne JAMAIS commiter)
+secrets.env.dec
+*.dec
+.env
+.env.local
+
+# Fichiers générés
+docker-compose.yml
+traefik/dynamic.yml
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporaires
+*.tmp
+*.bak
