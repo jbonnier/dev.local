@@ -2,6 +2,22 @@
 
 Un système modulaire et générique pour gérer des services Docker avec profils dynamiques et gestion sécurisée des secrets via SOPS.
 
+## 💡 À quoi sert Dev.Local ?
+
+**Dev.Local** est un environnement de développement local orchestré qui simplifie la gestion de multiples services Docker. Il vous permet de :
+
+- **Démarrer rapidement** un environnement complet avec tous vos services (APIs, bases de données, frontends, etc.)
+- **Gérer facilement** plusieurs profils de services selon vos besoins (activer/désactiver des services à la volée)
+- **Sécuriser vos secrets** (mots de passe, clés API) avec chiffrement SOPS intégré
+- **Accéder simplement** à tous vos services via des URLs propres grâce à Traefik (ex: `http://localhost:8080/api`)
+- **Travailler en équipe** avec une configuration partagée et reproductible
+
+**Cas d'usage typiques :**
+- Développeur frontend qui a besoin de plusieurs APIs backend
+- Développeur fullstack gérant un écosystème de microservices
+- Équipe partageant un environnement de développement standardisé
+- Tests d'intégration nécessitant plusieurs services interconnectés
+
 ## 🎯 Caractéristiques
 
 - **Gestion dynamique des profils** : Ajoutez facilement de nouveaux services
