@@ -328,25 +328,16 @@ chmod +x *.sh
 ### Documentation Bash
 
 - [BASH_README.md](BASH_README.md) - Guide complet pour Linux/macOS
-- [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) - Migration Windows ↔ Linux
 - [CHEATSHEET.md](CHEATSHEET.md) - Aide-mémoire des commandes
 
 ## 📚 Documentation Complète
 
-### Guides Principaux
+### Guides Disponibles
 
 - [QUICKSTART.md](QUICKSTART.md) - Démarrage rapide (Windows + Linux)
-- [SUMMARY.md](SUMMARY.md) - Vue d'ensemble exécutive
+- [BASH_README.md](BASH_README.md) - Guide utilisateur Linux/macOS
 - [CHEATSHEET.md](CHEATSHEET.md) - Aide-mémoire des commandes essentielles
 - [FILE_INDEX.md](FILE_INDEX.md) - Index complet de tous les fichiers
-
-### Documentation Bash/Linux
-
-- [BASH_README.md](BASH_README.md) - Guide utilisateur Linux/macOS
-- [BASH_CONVERSION_REPORT.md](BASH_CONVERSION_REPORT.md) - Rapport technique de conversion
-- [BASH_COMPLETION.md](BASH_COMPLETION.md) - Résumé des accomplissements
-- [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) - Migration Windows ↔ Linux
-- [TASK_COMPLETED.md](TASK_COMPLETED.md) - Rapport de tâche complétée
 
 ## 🔒 Sécurité
 
