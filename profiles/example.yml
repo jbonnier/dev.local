@@ -7,44 +7,28 @@
 # ============================================
 name: example-service
 description: "Service exemple pour démonstration"
-enabled: true  # false pour désactiver le service sans supprimer le profil
+enabled: false  # false pour désactiver le service sans supprimer le profil
+always_active: false  # Si true, démarré automatiquement sans --profile
+docker_profile: example  # Nom du profil Docker (ou null si always_active)
 
 # ============================================
 # CONFIGURATION DOCKER
 # ============================================
-service:
-  # Image Docker du service
+docker-compose:
   image: ${EXAMPLE_IMAGE:-nginx:latest}
-  
-  # Nom du container
   container_name: example-service
-  
-  # Ports exposés (format: "host:container")
   ports:
     - "8090:80"
-  
-  # Variables d'environnement
   environment:
     - ENV_MODE=docker
     - SERVICE_NAME=example
-    # Référence à un secret depuis secrets.env
     - EXAMPLE_API_KEY=${EXAMPLE_API_KEY:-default-key}
-  
-  # Volumes (optionnel)
-  volumes:
-    # - ./data:/app/data
-  
-  # Health check
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:80/"]
     interval: 30s
     timeout: 5s
     retries: 3
     start_period: 10s
-  
-  # Réseau (ajouté automatiquement si traefik est activé)
-  # networks:
-  #   - traefik-network
 
 # ============================================
 # CONFIGURATION TRAEFIK
@@ -69,6 +53,15 @@ traefik:
   # middlewares:
   #   - auth
   #   - compress
+
+# ============================================
+# SECRETS (optionnel)
+# ============================================
+# Variables de secrets requises (à définir dans secrets.env)
+secrets:
+  - name: EXAMPLE_API_KEY
+    description: "Clé API pour le service exemple"
+    default: default-key
 
 # ============================================
 # MÉTADONNÉES (optionnel)

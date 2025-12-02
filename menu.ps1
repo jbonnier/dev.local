@@ -47,18 +47,19 @@ function Show-Menu {
   9. ✏️  Éditer les secrets (sops secrets.env)
   10. 👁️  Voir les secrets déchiffrés
   11. 🆕 Initialiser secrets.env
+  12. 🔄 Synchroniser secrets.env avec les profils
 
 ┌─────────────────────────────────────────────────────────────┐
 │ ☁️  AWS & DOCKER                                            │
 └─────────────────────────────────────────────────────────────┘
-  12. 🔐 Connexion AWS SSO
-  13. 🪪 Voir l'identité AWS
-  14. 🐳 Connexion Docker ECR
+  13. 🔐 Connexion AWS SSO
+  14. 🪪 Voir l'identité AWS
+  15. 🐳 Connexion Docker ECR
 
 ┌─────────────────────────────────────────────────────────────┐
 │ 📚 DOCUMENTATION                                            │
 └─────────────────────────────────────────────────────────────┘
-  15. 📖 Ouvrir README.md
+  16. 📖 Ouvrir README.md
   
   0. ❌ Quitter (ou 'q')
 
@@ -184,27 +185,34 @@ function Main {
                 Wait-AnyKey
             }
             "12" {
+                Write-Host "🔄 Synchronisation de secrets.env..." -ForegroundColor Cyan
+                Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
+                Write-Host ".\manage-profiles.ps1 -Action sync-secrets" -ForegroundColor Yellow
+                & .\manage-profiles.ps1 -Action sync-secrets
+                Wait-AnyKey
+            }
+            "13" {
                 Write-Host "🔐 Connexion AWS SSO..." -ForegroundColor Cyan
                 Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
                 Write-Host ".\launch.ps1 -c sso" -ForegroundColor Yellow
                 & .\launch.ps1 -c sso
                 Wait-AnyKey
             }
-            "13" {
+            "14" {
                 Write-Host "🪪 Identité AWS actuelle:" -ForegroundColor Cyan
                 Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
                 Write-Host ".\launch.ps1 -c id" -ForegroundColor Yellow
                 & .\launch.ps1 -c id
                 Wait-AnyKey
             }
-            "14" {
+            "15" {
                 Write-Host "🐳 Connexion Docker à AWS ECR..." -ForegroundColor Cyan
                 Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
                 Write-Host ".\launch.ps1 -c ecr-login" -ForegroundColor Yellow
                 & .\launch.ps1 -c ecr-login
                 Wait-AnyKey
             }
-            "15" {
+            "16" {
                 Write-Host "📖 Ouverture de README.md..." -ForegroundColor Cyan
                 if (Test-Path README.md) {
                     if (Get-Command code -ErrorAction SilentlyContinue) {

@@ -1,0 +1,6 @@
+# Configuration globale de Dev.Local 2.0
+# Ce fichier permet d'activer/désactiver des services optionnels
+
+# Dozzle - Monitoring des logs Docker via interface web
+dozzle_enabled: true
+dozzle_port: 9999  # Port accessible via http://localhost:9999 ou http://localhost:8080/logs

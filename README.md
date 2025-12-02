@@ -43,6 +43,7 @@ Dev.Local.2.0/
 │   ├── traefik.yml        # Config principale
 │   └── dynamic.yml        # Config dynamique (généré)
 ├── docker-compose.yml     # Composition Docker (généré)
+├── config.yml             # Configuration globale (Dozzle, etc.)
 ├── secrets.env            # Secrets chiffrés SOPS
 ├── .sops.yaml            # Configuration SOPS
 ├── menu.ps1              # Menu interactif
@@ -153,6 +154,56 @@ Les profils sont des fichiers YAML dans le dossier `profiles/` :
 ```yaml
 # profiles/mon-service.yml
 name: mon-service
+description: "Description du service"
+enabled: true
+
+# Configuration Docker Compose (copié tel quel)
+docker-compose:
+  image: myregistry/service:latest
+  container_name: mon-service
+  ports:
+    - "8000:8000"
+  environment:
+    - ENV_VAR=value
+    - SECRET_KEY=${SECRET_KEY:-changeme}
+
+# Configuration Traefik (optionnel)
+traefik:
+  enabled: true
+  prefix: /mon-service
+  strip_prefix: true
+  port: 8000
+  priority: 10
+  failover: false  # Active le failover host/docker
+  host_port: 8000  # Port du service local (si failover)
+  health_path: /health
+
+# Documentation des secrets requis (recommandé)
+secrets:
+  - name: SECRET_KEY
+    description: "Clé API secrète"
+    default: changeme
+  - name: DATABASE_PASSWORD
+    description: "Mot de passe de la base de données"
+    default: changeme
+
+# Métadonnées (optionnel)
+metadata:
+  category: api
+  tags:
+    - backend
+    - production
+```
+
+### Section `secrets:` (recommandée)
+
+Cette section documente explicitement les secrets requis :
+- **name** : Nom de la variable (doit correspondre à `${VAR}` dans `environment`)
+- **description** : Utilité du secret
+- **default** : Valeur par défaut (utilisée lors de la synchronisation)
+
+La commande `sync-secrets` utilise cette section pour mettre à jour automatiquement `secrets.env`.
+name: mon-service
 enabled: true
 
 service:
@@ -179,6 +230,16 @@ traefik:
 ```
 
 ## 🔧 Configuration avancée
+
+### Configuration globale (config.yml)
+
+Le fichier `config.yml` permet d'activer/désactiver des services optionnels :
+
+```yaml
+# Dozzle - Monitoring des logs Docker
+dozzle_enabled: true
+dozzle_port: 9999  # Accessible via http://localhost:9999 ou http://localhost:8080/logs
+```
 
 ### Variables d'environnement
 
