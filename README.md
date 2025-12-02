@@ -55,10 +55,69 @@ Dev.Local.2.0/
 
 ## 🎮 Utilisation
 
-### Menu interactif
+Dev.Local 2.0 offre **trois façons** de gérer vos services Docker :
 
+### 1️⃣ Just (Recommandé - Multiplateforme)
+
+[Just](https://github.com/casey/just) est un command runner simple et multiplateforme qui fonctionne sur Windows, Linux et macOS.
+
+```bash
+# Afficher toutes les commandes disponibles
+just --list
+
+# Démarrer tous les services
+just start
+
+# Démarrer avec profils spécifiques
+just start-profile andoc,emp
+
+# Voir les logs
+just logs
+just logs andoc
+
+# Arrêter les services
+just stop
+
+# Autres commandes utiles
+just ps              # Lister les containers
+just validate        # Valider la configuration
+just generate        # Régénérer docker-compose.yml
+just secrets-edit    # Éditer les secrets
+just aws-sso         # Connexion AWS
+just menu            # Lancer le menu interactif
+
+# Aliases courts
+just s               # start
+just st              # stop
+just r               # restart
+just p               # ps
+just g               # generate
+just v               # validate
+```
+
+**Installation de Just :**
+- **Windows (Chocolatey):** `choco install just`
+- **Windows (Scoop):** `scoop install just`
+- **Linux/macOS (Homebrew):** `brew install just`
+- **Cargo:** `cargo install just`
+
+### 2️⃣ Menu interactif
+
+Le menu interactif offre une interface simple pour toutes les opérations :
+
+**Avec Just (toutes plateformes) :**
+```bash
+just menu
+```
+
+**Windows (PowerShell) :**
 ```powershell
 .\menu.ps1
+```
+
+**Linux/macOS (Bash) :**
+```bash
+./menu.sh
 ```
 
 Options disponibles :
@@ -68,8 +127,9 @@ Options disponibles :
 4. Gérer les secrets SOPS
 5. Arrêter les services
 
-### Ligne de commande
+### 3️⃣ Ligne de commande directe
 
+**Windows (PowerShell) :**
 ```powershell
 # Démarrer tous les services
 .\launch.ps1
@@ -77,12 +137,51 @@ Options disponibles :
 # Démarrer avec profils spécifiques
 .\launch.ps1 -p service1,service2
 
-# Arrêter
-.\launch.ps1 -c stop
+# Voir les logs
+.\launch.ps1 logs
+.\launch.ps1 logs -service andoc
 
-# Gérer les secrets
-.\launch.ps1 -c edit-secrets
+# Arrêter
+.\launch.ps1 stop
+
+# Autres commandes
+.\launch.ps1 ps              # Lister les containers
+.\launch.ps1 recreate        # Recréer les services
+.\launch.ps1 edit-secrets    # Éditer les secrets
+.\launch.ps1 sso             # Connexion AWS SSO
+.\launch.ps1 ecr-login       # Login Docker ECR
 ```
+
+**Linux/macOS (Bash) :**
+```bash
+# Démarrer tous les services
+./launch.sh start
+
+# Démarrer avec profils spécifiques
+./launch.sh --profile service1,service2 start
+
+# Voir les logs
+./launch.sh logs
+./launch.sh logs andoc
+
+# Arrêter
+./launch.sh stop
+
+# Autres commandes
+./launch.sh ps              # Lister les containers
+./launch.sh recreate        # Recréer les services
+./launch.sh edit-secrets    # Éditer les secrets
+./launch.sh sso             # Connexion AWS SSO
+./launch.sh ecr-login       # Login Docker ECR
+```
+
+### Quelle méthode choisir ?
+
+| Méthode | Avantages | Quand utiliser |
+|---------|-----------|----------------|
+| **Just** | ✅ Syntaxe courte et claire<br>✅ Multiplateforme<br>✅ Autocomplete disponible<br>✅ Commandes mémorisables | Utilisation quotidienne, scripts CI/CD |
+| **Menu** | ✅ Interface guidée<br>✅ Pas besoin de mémoriser les commandes<br>✅ Idéal pour les débutants | Découverte, opérations ponctuelles |
+| **CLI directe** | ✅ Contrôle total<br>✅ Scriptable<br>✅ Pas de dépendances externes | Scripts automatisés, intégrations custom |
 
 ## 📝 Ajouter un nouveau service
 
