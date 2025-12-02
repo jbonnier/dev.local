@@ -111,6 +111,15 @@ aws-sso:
 aws-sso:
     ./launch.sh sso
 
+# Afficher l'identité AWS
+[windows]
+aws-id:
+    .\launch.ps1 -c id
+
+[unix]
+aws-id:
+    ./launch.sh id
+
 # Connexion Docker à AWS ECR
 [windows]
 ecr-login:
@@ -119,6 +128,15 @@ ecr-login:
 [unix]
 ecr-login:
     ./launch.sh ecr-login
+
+# Connexion Docker à JFrog
+[windows]
+jfrog-login:
+    .\launch.ps1 -c jfrog-login
+
+[unix]
+jfrog-login:
+    ./launch.sh jfrog-login
 
 # Utilitaires
 # Nettoyer containers et volumes

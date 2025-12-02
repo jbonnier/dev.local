@@ -69,11 +69,11 @@ just --list
 just start
 
 # Démarrer avec profils spécifiques
-just start-profile andoc,emp
+just start-profile example,emp
 
 # Voir les logs
 just logs
-just logs andoc
+just logs example
 
 # Arrêter les services
 just stop
@@ -85,6 +85,12 @@ just generate        # Régénérer docker-compose.yml
 just secrets-edit    # Éditer les secrets
 just aws-sso         # Connexion AWS
 just menu            # Lancer le menu interactif
+
+# Commandes AWS et Docker Registry
+just aws-sso         # Connexion AWS SSO
+just aws-id          # Afficher l'identité AWS
+just ecr-login       # Login Docker à AWS ECR
+just jfrog-login     # Login Docker à JFrog
 
 # Aliases courts
 just s               # start
@@ -139,7 +145,7 @@ Options disponibles :
 
 # Voir les logs
 .\launch.ps1 logs
-.\launch.ps1 logs -service andoc
+.\launch.ps1 logs -service example
 
 # Arrêter
 .\launch.ps1 stop
@@ -148,7 +154,9 @@ Options disponibles :
 .\launch.ps1 ps              # Lister les containers
 .\launch.ps1 recreate        # Recréer les services
 .\launch.ps1 edit-secrets    # Éditer les secrets
+.\launch.ps1 view-secrets    # Voir les secrets déchiffrés
 .\launch.ps1 sso             # Connexion AWS SSO
+.\launch.ps1 id              # Afficher l'identité AWS
 .\launch.ps1 ecr-login       # Login Docker ECR
 ```
 
@@ -162,7 +170,7 @@ Options disponibles :
 
 # Voir les logs
 ./launch.sh logs
-./launch.sh logs andoc
+./launch.sh logs example
 
 # Arrêter
 ./launch.sh stop
@@ -171,7 +179,9 @@ Options disponibles :
 ./launch.sh ps              # Lister les containers
 ./launch.sh recreate        # Recréer les services
 ./launch.sh edit-secrets    # Éditer les secrets
+./launch.sh view-secrets    # Voir les secrets déchiffrés
 ./launch.sh sso             # Connexion AWS SSO
+./launch.sh id              # Afficher l'identité AWS
 ./launch.sh ecr-login       # Login Docker ECR
 ```
 
@@ -330,6 +340,124 @@ traefik:
 
 ## 🔧 Configuration avancée
 
+### Basculer entre différentes images Docker
+
+Vous pouvez facilement basculer entre différentes versions ou registres d'images pour un service en utilisant des **variables d'environnement**.
+
+#### Méthode 1 : Variables d'environnement dans le profil (Recommandé)
+
+Modifiez votre profil pour utiliser des variables d'environnement (image et tag séparés pour plus de flexibilité) :
+
+```yaml
+# profiles/example.yml
+docker-compose:
+  # Image et tag séparés (recommandé)
+  image: ${EXAMPLE_IMAGE:-<id>.dkr.ecr.ca-central-1.amazonaws.com/example}:${EXAMPLE_TAG:-latest}
+  container_name: example
+  # ... reste de la config
+```
+
+Ensuite, basculez entre les images selon vos besoins :
+
+**Avec Just :**
+```bash
+# Utiliser l'image par défaut (production avec tag latest)
+just start-profile example
+
+# Utiliser le tag dev
+$env:example_TAG="dev"
+just start-profile example
+
+# Utiliser une image locale
+$env:EXAMPLE_IMAGE="EXAMPLE"
+$env:EXAMPLE_TAG="local"
+just start-profile example
+
+# Utiliser un autre registre
+$env:EXAMPLE_IMAGE="ghcr.io/myorg/example"
+$env:EXAMPLE_TAG="v2.0.0"
+just start-profile example
+
+# Tester une branche feature
+$env:EXAMPLE_TAG="feature-new-api"
+just start-profile example
+```
+
+**Avec PowerShell :**
+```powershell
+# Changer uniquement le tag
+$env:EXAMPLE_TAG="dev"
+.\launch.ps1 -p example
+
+# Changer image et tag
+$env:EXAMPLE_IMAGE="EXAMPLE"; $env:EXAMPLE_TAG="local"
+.\launch.ps1 -p example
+
+# Ou en ligne séparée
+$env:EXAMPLE_IMAGE = "ghcr.io/myorg/EXAMPLE"
+$env:EXAMPLE_TAG = "staging"
+.\launch.ps1 -p example
+```
+
+**Avec Bash :**
+```bash
+# Changer uniquement le tag
+export EXAMPLE_TAG="dev"
+./launch.sh --profile example start
+
+# Changer image et tag en une ligne
+EXAMPLE_IMAGE="EXAMPLE" EXAMPLE_TAG="local" ./launch.sh --profile example start
+```
+
+#### Méthode 2 : Fichier .env pour une configuration persistante
+
+Créez un fichier `.env` à la racine (il est déjà dans `.gitignore`) :
+
+```env
+# .env
+# Images personnalisées avec tags séparés
+EXAMPLE_IMAGE=<id>.dkr.ecr.ca-central-1.amazonaws.com/cgpt-EXAMPLE
+EXAMPLE_TAG=dev
+
+FRONTEND_IMAGE=ghcr.io/myorg/frontend
+FRONTEND_TAG=feature-xyz
+
+API_IMAGE=myregistry.com/api
+API_TAG=v2.0.0
+
+# Ou pour développement local
+EXAMPLE_IMAGE=EXAMPLE
+EXAMPLE_TAG=local
+
+# Versions spécifiques des dépendances
+NODE_VERSION=20-alpine
+POSTGRES_VERSION=15.2
+```
+
+Les variables seront automatiquement chargées par Docker Compose !
+
+#### Tips et Bonnes Pratiques
+
+1. **Nommage cohérent** : Utilisez `<SERVICE>_IMAGE` (sans tag), `<SERVICE>_TAG`, et optionnellement `<SERVICE>_REGISTRY`
+2. **Séparation image/tag** : Préférez séparer l'image et le tag pour faciliter les changements de version
+3. **Valeurs par défaut** : Toujours fournir une valeur par défaut avec `${VAR:-default}`
+4. **Documentation** : Documentez les variables disponibles dans le profil ou le README
+5. **Fichier .env.example** : Créez un exemple pour votre équipe (déjà fourni)
+6. **Pas de secrets** : Les secrets vont dans `secrets.env` (chiffré), pas `.env`
+7. **Tags explicites** : Évitez `latest` en production, utilisez des versions spécifiques
+
+**Exemples de bons formats :**
+```yaml
+# ✅ Bon : Image et tag séparés
+image: ${SERVICE_IMAGE:-registry.com/service}:${SERVICE_TAG:-v1.0.0}
+
+# ✅ Bon : Avec registre optionnel
+image: ${SERVICE_REGISTRY:-registry.com}/${SERVICE_IMAGE:-service}:${SERVICE_TAG:-v1.0.0}
+
+# ❌ Moins flexible : Tout dans une variable
+image: ${SERVICE_IMAGE:-registry.com/service:v1.0.0}
+```
+
 ### Configuration globale (config.yml)
 
 Le fichier `config.yml` permet d'activer/désactiver des services optionnels :
@@ -363,11 +491,51 @@ Modifier `traefik/traefik.yml` pour :
 
 ## 🛠️ Scripts disponibles
 
-| Script | Description |
-|--------|-------------|
-| `menu.ps1` | Menu interactif principal |
-| `launch.ps1` | Gestion des services Docker |
-| `manage-profiles.ps1` | Gestion des profils de services |
+| Script | Description | Équivalent Just |
+|--------|-------------|-----------------|
+| `menu.ps1` / `menu.sh` | Menu interactif principal | `just menu` |
+| `launch.ps1` / `launch.sh` | Gestion des services Docker | - |
+| `manage-profiles.ps1` / `manage-profiles.sh` | Gestion des profils de services | - |
+
+### Commandes disponibles
+
+#### Services Docker
+| Commande | Just | PowerShell | Bash | Description |
+|----------|------|------------|------|-------------|
+| Démarrer | `just start` | `.\launch.ps1 start` | `./launch.sh start` | Démarrer tous les services |
+| Démarrer profils | `just start-profile example,emp` | `.\launch.ps1 -p example,emp` | `./launch.sh --profile example,emp start` | Démarrer des profils spécifiques |
+| Arrêter | `just stop` | `.\launch.ps1 stop` | `./launch.sh stop` | Arrêter tous les services |
+| Redémarrer | `just restart` | `.\launch.ps1 recreate` | `./launch.sh recreate` | Recréer les services |
+| Lister | `just ps` | `.\launch.ps1 ps` | `./launch.sh ps` | Lister les containers |
+| Logs | `just logs [service]` | `.\launch.ps1 logs [-service xxx]` | `./launch.sh logs [service]` | Voir les logs |
+
+#### Profils
+| Commande | Just | PowerShell | Bash | Description |
+|----------|------|------------|------|-------------|
+| Lister | `just profiles` | `.\manage-profiles.ps1 list` | `./manage-profiles.sh list` | Lister les profils |
+| Générer | `just generate` | `.\manage-profiles.ps1 generate` | `./manage-profiles.sh generate` | Regénérer docker-compose.yml |
+| Valider | `just validate` | - | - | Valider la configuration |
+
+#### Secrets (SOPS)
+| Commande | Just | PowerShell | Bash | Description |
+|----------|------|------------|------|-------------|
+| Éditer | `just secrets-edit` | `.\launch.ps1 edit-secrets` | `./launch.sh edit-secrets` | Éditer les secrets |
+| Voir | `just secrets-view` | `.\launch.ps1 view-secrets` | `./launch.sh view-secrets` | Voir les secrets déchiffrés |
+
+#### AWS et Docker Registry
+| Commande | Just | PowerShell | Bash | Description |
+|----------|------|------------|------|-------------|
+| AWS SSO | `just aws-sso` | `.\launch.ps1 sso` | `./launch.sh sso` | Connexion AWS SSO |
+| Identité AWS | `just aws-id` | `.\launch.ps1 id` | `./launch.sh id` | Afficher l'identité AWS |
+| ECR Login | `just ecr-login` | `.\launch.ps1 ecr-login` | `./launch.sh ecr-login` | Login Docker à AWS ECR |
+| JFrog Login | `just jfrog-login` | `.\launch.ps1 jfrog-login` | `./launch.sh jfrog-login` | Login Docker à JFrog |
+
+#### Utilitaires
+| Commande | Just | PowerShell | Bash | Description |
+|----------|------|------------|------|-------------|
+| Menu | `just menu` | `.\menu.ps1` | `./menu.sh` | Lancer le menu interactif |
+| Nettoyer | `just clean` | `docker compose down -v` | `docker compose down -v` | Nettoyer containers et volumes |
+| Config | `just config` | `docker compose config` | `docker compose config` | Afficher la config finale |
 
 ## 📚 Exemples
 
@@ -398,6 +566,84 @@ Modifier `traefik/traefik.yml` pour :
 ```powershell
 .\launch.ps1 -p api-backend,frontend
 ```
+
+## ☁️ AWS et Docker Registry
+
+Dev.Local 2.0 supporte l'authentification AWS SSO et les connexions aux registres Docker privés.
+
+### Connexion AWS SSO
+
+Avant d'utiliser des images depuis AWS ECR, connectez-vous avec AWS SSO :
+
+**Avec Just :**
+```bash
+just aws-sso
+```
+
+**Avec les scripts :**
+```powershell
+# Windows
+.\launch.ps1 sso
+
+# Linux/macOS
+./launch.sh sso
+```
+
+### Connexion Docker à AWS ECR
+
+Une fois connecté à AWS SSO, authentifiez Docker avec ECR :
+
+**Avec Just :**
+```bash
+just ecr-login
+```
+
+**Avec les scripts :**
+```powershell
+# Windows
+.\launch.ps1 ecr-login
+
+# Linux/macOS
+./launch.sh ecr-login
+```
+
+### Vérifier l'identité AWS
+
+Pour vérifier quelle identité AWS est actuellement utilisée :
+
+**Avec Just :**
+```bash
+just aws-id
+```
+
+**Avec les scripts :**
+```powershell
+# Windows
+.\launch.ps1 id
+
+# Linux/macOS
+./launch.sh id
+```
+
+### Workflow complet avec AWS
+
+```bash
+# 1. Se connecter à AWS SSO
+just aws-sso
+
+# 2. Vérifier l'identité (optionnel)
+just aws-id
+
+# 3. Se connecter à Docker ECR
+just ecr-login
+
+# 4. Démarrer les services avec images ECR
+just start
+```
+
+### Configuration du profil AWS
+
+Les scripts utilisent le profil AWS `ESG-DV-PowerUser-SSO` par défaut. Pour utiliser un autre profil, modifiez la fonction `Connect-AwsSso` dans `launch.ps1` ou `connect_aws_sso` dans `launch.sh`.
 
 ## 🐧 Support Linux/macOS
 

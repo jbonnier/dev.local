@@ -215,8 +215,38 @@ connect_ecr_login() {
         return 1
     fi
     
+    # Lire l'URL ECR depuis config.yml
+    local config_path="$(dirname "$0")/config.yml"
+    local ecr_url="<id>.dkr.ecr.ca-central-1.amazonaws.com"  # Valeur par défaut
+    
+    if [ -f "$config_path" ] && command -v yq &> /dev/null; then
+        local url=$(yq eval '.registries.ecr.url' "$config_path" 2>/dev/null)
+        if [ -n "$url" ] && [ "$url" != "null" ]; then
+            ecr_url="$url"
+        fi
+    fi
+    
     echo -e "\033[96m🐳 Connexion Docker à AWS ECR...\033[0m"
-    aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 237029655182.dkr.ecr.ca-central-1.amazonaws.com
+    aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin "$ecr_url"
+}
+
+# Docker JFrog Login
+connect_jfrog_login() {
+    # Lire l'URL JFrog depuis config.yml
+    local config_path="$(dirname "$0")/config.yml"
+    local jfrog_url="custom.jfrog.io"  # Valeur par défaut
+    
+    if [ -f "$config_path" ] && command -v yq &> /dev/null; then
+        local url=$(yq eval '.registries.jfrog.url' "$config_path" 2>/dev/null)
+        if [ -n "$url" ] && [ "$url" != "null" ]; then
+            jfrog_url="$url"
+        fi
+    fi
+    
+    echo -e "\033[96m🐳 Connexion Docker à JFrog...\033[0m"
+    echo -e "\033[93mUtilisez: docker login $jfrog_url\033[0m"
+    echo -e "\033[93mEntrez vos identifiants JFrog lorsque demandé\033[0m"
+    docker login "$jfrog_url"
 }
 
 # Main
@@ -246,6 +276,9 @@ case "$COMMAND" in
         ;;
     ecr-login)
         connect_ecr_login
+        ;;
+    jfrog-login)
+        connect_jfrog_login
         ;;
     edit-secrets)
         edit_secrets

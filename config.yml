@@ -4,3 +4,13 @@
 # Dozzle - Monitoring des logs Docker via interface web
 dozzle_enabled: true
 dozzle_port: 9999  # Port accessible via http://localhost:9999 ou http://localhost:8080/logs
+
+# Docker Registries
+# Configuration des registres Docker pour le projet
+registries:
+  jfrog:
+    url: CUSTOM.jfrog.io
+    description: "JFrog Artifactory - Registre Docker Organisation"
+  ecr:
+    url: <id>.dkr.ecr.ca-central-1.amazonaws.com
+    description: "AWS ECR - Elastic Container Registry"

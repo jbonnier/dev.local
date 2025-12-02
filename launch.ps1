@@ -216,8 +216,38 @@ function Connect-EcrLogin {
         return
     }
     
+    # Lire l'URL ECR depuis config.yml
+    $configPath = Join-Path $PSScriptRoot "config.yml"
+    $ecrUrl = "<id>.dkr.ecr.ca-central-1.amazonaws.com"  # Valeur par défaut
+    
+    if (Test-Path $configPath) {
+        $config = Get-Content $configPath -Raw | ConvertFrom-Yaml -ErrorAction SilentlyContinue
+        if ($config.registries.ecr.url) {
+            $ecrUrl = $config.registries.ecr.url
+        }
+    }
+    
     Write-Host "🐳 Connexion Docker à AWS ECR..." -ForegroundColor Cyan
-    aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 237029655182.dkr.ecr.ca-central-1.amazonaws.com
+    aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin $ecrUrl
+}
+
+# Docker JFrog Login
+function Connect-JfrogLogin {
+    # Lire l'URL JFrog depuis config.yml
+    $configPath = Join-Path $PSScriptRoot "config.yml"
+    $jfrogUrl = "custom.jfrog.io"  # Valeur par défaut
+    
+    if (Test-Path $configPath) {
+        $config = Get-Content $configPath -Raw | ConvertFrom-Yaml -ErrorAction SilentlyContinue
+        if ($config.registries.jfrog.url) {
+            $jfrogUrl = $config.registries.jfrog.url
+        }
+    }
+    
+    Write-Host "🐳 Connexion Docker à JFrog..." -ForegroundColor Cyan
+    Write-Host "Utilisez: docker login $jfrogUrl" -ForegroundColor Yellow
+    Write-Host "Entrez vos identifiants JFrog lorsque demandé" -ForegroundColor Yellow
+    docker login $jfrogUrl
 }
 
 # Main
@@ -232,6 +262,7 @@ switch ($c) {
     'sso' { Connect-AwsSso }
     'id' { Show-AwsIdentity }
     'ecr-login' { Connect-EcrLogin }
+    'jfrog-login' { Connect-JfrogLogin }
     'edit-secrets' { Edit-Secrets }
     'view-secrets' { View-Secrets }
     default { Write-Error "Commande inconnue: $c" }

@@ -15,10 +15,22 @@ docker_profile: example  # Nom du profil Docker (ou null si always_active)
 # CONFIGURATION DOCKER
 # ============================================
 docker-compose:
-  image: ${EXAMPLE_IMAGE:-nginx:latest}
+  # Image Docker avec support des variables d'environnement
+  # Permet de basculer facilement entre différentes versions/registres
+  # Syntaxe : ${VARIABLE:-valeur_par_defaut}
+  
+  # Option 1 : Image complète avec tag (simple)
+  # image: ${EXAMPLE_IMAGE:-nginx:latest}
+  
+  # Option 2 : Image et tag séparés (recommandé - plus flexible)
+  image: ${EXAMPLE_IMAGE:-nginx}:${EXAMPLE_TAG:-latest}
+  
+  # Option 3 : Décomposition complète (maximum de flexibilité)
+  # image: ${EXAMPLE_REGISTRY:-docker.io}/${EXAMPLE_IMAGE:-nginx}:${EXAMPLE_TAG:-latest}
+  
   container_name: example-service
   ports:
-    - "8090:80"
+    - "${EXAMPLE_PORT:-8090}:80"
   environment:
     - ENV_MODE=docker
     - SERVICE_NAME=example
@@ -29,6 +41,36 @@ docker-compose:
     timeout: 5s
     retries: 3
     start_period: 10s
+
+# Exemples d'utilisation :
+# 
+# 1. Image par défaut (nginx:latest) :
+#    just start-profile example
+# 
+# 2. Changer uniquement le tag :
+#    $env:EXAMPLE_TAG="alpine"
+#    just start-profile example
+# 
+# 3. Changer l'image et le tag :
+#    $env:EXAMPLE_IMAGE="httpd"
+#    $env:EXAMPLE_TAG="2.4"
+#    just start-profile example
+# 
+# 4. Image privée avec registre :
+#    $env:EXAMPLE_REGISTRY="myregistry.com"
+#    $env:EXAMPLE_IMAGE="my-nginx"
+#    $env:EXAMPLE_TAG="custom"
+#    just start-profile example
+# 
+# 5. Image locale pour développement :
+#    $env:EXAMPLE_IMAGE="my-custom-nginx"
+#    $env:EXAMPLE_TAG="local"
+#    just start-profile example
+# 
+# 6. Avec port personnalisé :
+#    $env:EXAMPLE_PORT="9090"
+#    $env:EXAMPLE_TAG="alpine"
+#    just start-profile example
 
 # ============================================
 # CONFIGURATION TRAEFIK
