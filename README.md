@@ -1,4 +1,4 @@
-# Dev.Local 2.0 - Gestionnaire de Services Docker Générique
+# Dev.Local - Gestionnaire de Services Docker Générique
 
 Un système modulaire et générique pour gérer des services Docker avec profils dynamiques et gestion sécurisée des secrets via SOPS.
 
@@ -35,7 +35,7 @@ Un système modulaire et générique pour gérer des services Docker avec profil
 ## 📁 Structure du projet
 
 ```
-Dev.Local.2.0/
+dev.local/
 ├── profiles/               # Définitions des profils de services
 │   ├── example.yml        # Template de profil
 │   └── <nom-service>.yml  # Vos profils personnalisés
