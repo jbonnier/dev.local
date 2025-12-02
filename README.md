@@ -300,6 +300,54 @@ Modifier `traefik/traefik.yml` pour :
 .\launch.ps1 -p api-backend,frontend
 ```
 
+## 🐧 Support Linux/macOS
+
+Dev.Local 2.0 est maintenant **100% compatible** avec Linux et macOS grâce aux scripts Bash !
+
+### Scripts Bash Disponibles
+
+- `menu.sh` - Menu interactif (équivalent de menu.ps1)
+- `manage-profiles.sh` - Gestion des profils (équivalent de manage-profiles.ps1)
+- `launch.sh` - Orchestration des services (équivalent de launch.ps1)
+- `test-bash-scripts.sh` - Validation automatique de l'installation
+
+### Utilisation sur Linux/macOS
+
+```bash
+# Rendre les scripts exécutables (une seule fois)
+chmod +x *.sh
+
+# Lancer le menu interactif
+./menu.sh
+
+# Ou utiliser directement les commandes
+./manage-profiles.sh add
+./launch.sh start
+```
+
+### Documentation Bash
+
+- [BASH_README.md](BASH_README.md) - Guide complet pour Linux/macOS
+- [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) - Migration Windows ↔ Linux
+- [CHEATSHEET.md](CHEATSHEET.md) - Aide-mémoire des commandes
+
+## 📚 Documentation Complète
+
+### Guides Principaux
+
+- [QUICKSTART.md](QUICKSTART.md) - Démarrage rapide (Windows + Linux)
+- [SUMMARY.md](SUMMARY.md) - Vue d'ensemble exécutive
+- [CHEATSHEET.md](CHEATSHEET.md) - Aide-mémoire des commandes essentielles
+- [FILE_INDEX.md](FILE_INDEX.md) - Index complet de tous les fichiers
+
+### Documentation Bash/Linux
+
+- [BASH_README.md](BASH_README.md) - Guide utilisateur Linux/macOS
+- [BASH_CONVERSION_REPORT.md](BASH_CONVERSION_REPORT.md) - Rapport technique de conversion
+- [BASH_COMPLETION.md](BASH_COMPLETION.md) - Résumé des accomplissements
+- [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) - Migration Windows ↔ Linux
+- [TASK_COMPLETED.md](TASK_COMPLETED.md) - Rapport de tâche complétée
+
 ## 🔒 Sécurité
 
 - ✅ Secrets chiffrés avec SOPS (AWS KMS ou Age)
@@ -307,18 +355,55 @@ Modifier `traefik/traefik.yml` pour :
 - ✅ Validation automatique de la configuration SOPS
 - ✅ Aucun secret en dur dans les fichiers versionnés
 
+## 🌍 Compatibilité Multiplateforme
+
+| Fonctionnalité | Windows | Linux | macOS | WSL2 |
+|----------------|---------|-------|-------|------|
+| Menu interactif | ✅ | ✅ | ✅ | ✅ |
+| Gestion profils | ✅ | ✅ | ✅ | ✅ |
+| SOPS secrets | ✅ | ✅ | ✅ | ✅ |
+| Docker profiles | ✅ | ✅ | ✅ | ✅ |
+| Traefik | ✅ | ✅ | ✅ | ✅ |
+| AWS CLI | ✅ | ✅ | ✅ | ✅ |
+
+**Fichiers 100% compatibles** entre plateformes :
+- `profiles/*.yml`
+- `docker-compose.yml`
+- `traefik/dynamic.yml`
+- `secrets.env` (chiffré SOPS)
+- `config.yml`
+
 ## 🤝 Contribution
 
 1. Créer un nouveau profil dans `profiles/`
-2. Tester avec `.\launch.ps1 -p mon-nouveau-service`
+2. Tester :
+   - Windows : `.\launch.ps1 -p mon-nouveau-service`
+   - Linux : `./launch.sh --profile mon-nouveau-service start`
 3. Committer le profil (sans secrets!)
 
 ## 📞 Support
 
-Pour toute question :
-1. Consulter ce README
-2. Exécuter `.\launch.ps1 -h` pour l'aide détaillée
-3. Vérifier les logs : `docker compose logs -f`
+### Windows (PowerShell)
+1. Consulter [README.md](README.md) et [QUICKSTART.md](QUICKSTART.md)
+2. Utiliser le menu : `.\menu.ps1`
+3. Aide-mémoire : [CHEATSHEET.md](CHEATSHEET.md)
+
+### Linux/macOS (Bash)
+1. Consulter [BASH_README.md](BASH_README.md)
+2. Utiliser le menu : `./menu.sh`
+3. Tester l'installation : `./test-bash-scripts.sh`
+
+### Logs et Débogage
+```bash
+# Valider la configuration
+docker compose config --quiet
+
+# Voir les logs
+docker compose logs -f
+
+# Tester SOPS
+sops -d secrets.env
+```
 
 ## 📄 Licence
 
