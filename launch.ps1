@@ -27,8 +27,9 @@
 param(
     [string]$p,
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'recreate', 'ps', 'sso', 'id', 'ecr-login', 'jfrog-login', 'edit-secrets', 'view-secrets')]
-    [string]$c='start'
+    [ValidateSet('start', 'stop', 'recreate', 'ps', 'logs', 'sso', 'id', 'ecr-login', 'jfrog-login', 'edit-secrets', 'view-secrets')]
+    [string]$c='start',
+    [string]$service
 )
 
 $PSDefaultParameterValues['*:Encoding'] = 'UTF8'
@@ -173,6 +174,19 @@ function List-Containers {
     docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 }
 
+# Afficher les logs
+function Show-Logs {
+    param([string]$service)
+    
+    if ($service) {
+        Write-Host "📋 Logs du service: $service" -ForegroundColor Cyan
+        docker compose logs -f $service
+    } else {
+        Write-Host "📋 Logs de tous les services" -ForegroundColor Cyan
+        docker compose logs -f
+    }
+}
+
 # AWS SSO
 function Connect-AwsSso {
     if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
@@ -214,6 +228,7 @@ switch ($c) {
     'stop' { Stop-Services }
     'recreate' { Recreate-Services }
     'ps' { List-Containers }
+    'logs' { Show-Logs -service $service }
     'sso' { Connect-AwsSso }
     'id' { Show-AwsIdentity }
     'ecr-login' { Connect-EcrLogin }

@@ -6,6 +6,7 @@ set -e
 
 COMMAND="${1:-start}"
 PROFILES=""
+SERVICE=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -14,11 +15,19 @@ while [[ $# -gt 0 ]]; do
             PROFILES="$2"
             shift 2
             ;;
-        up|start|stop|down|recreate|ps|sso|id|ecr-login|jfrog-login|edit-secrets|view-secrets)
+        --service)
+            SERVICE="$2"
+            shift 2
+            ;;
+        up|start|stop|down|recreate|ps|logs|sso|id|ecr-login|jfrog-login|edit-secrets|view-secrets)
             COMMAND="$1"
             shift
             ;;
         *)
+            # Capture le service si fourni après la commande logs
+            if [[ "$COMMAND" == "logs" ]] && [[ -z "$SERVICE" ]]; then
+                SERVICE="$1"
+            fi
             shift
             ;;
     esac
@@ -166,6 +175,17 @@ list_containers() {
     docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 }
 
+# Afficher les logs
+show_logs() {
+    if [ -n "$SERVICE" ]; then
+        echo -e "\033[96m📋 Logs du service: $SERVICE\033[0m"
+        docker compose logs -f "$SERVICE"
+    else
+        echo -e "\033[96m📋 Logs de tous les services\033[0m"
+        docker compose logs -f
+    fi
+}
+
 # AWS SSO
 connect_aws_sso() {
     if ! command -v aws &> /dev/null; then
@@ -214,6 +234,9 @@ case "$COMMAND" in
         ;;
     ps)
         list_containers
+        ;;
+    logs)
+        show_logs
         ;;
     sso)
         connect_aws_sso
