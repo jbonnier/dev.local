@@ -55,7 +55,7 @@ dev.local/
 
 ## 🎮 Utilisation
 
-Dev.Local 2.0 offre **trois façons** de gérer vos services Docker :
+Dev.Local offre **trois façons** de gérer vos services Docker :
 
 ### 1️⃣ Just (Recommandé - Multiplateforme)
 
@@ -569,7 +569,7 @@ Modifier `traefik/traefik.yml` pour :
 
 ## ☁️ AWS et Docker Registry
 
-Dev.Local 2.0 supporte l'authentification AWS SSO et les connexions aux registres Docker privés.
+Dev.Local supporte l'authentification AWS SSO et les connexions aux registres Docker privés.
 
 ### Connexion AWS SSO
 
@@ -647,7 +647,7 @@ Les scripts utilisent le profil AWS `ESG-DV-PowerUser-SSO` par défaut. Pour uti
 
 ## 🐧 Support Linux/macOS
 
-Dev.Local 2.0 est maintenant **100% compatible** avec Linux et macOS grâce aux scripts Bash !
+Dev.Local est **100% compatible** avec Linux et macOS grâce aux scripts Bash !
 
 ### Scripts Bash Disponibles
 
