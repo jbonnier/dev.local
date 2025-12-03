@@ -22,11 +22,127 @@ load_config() {
         if grep -q "dozzle_enabled: false" "$CONFIG_FILE" 2>/dev/null; then
             DOZZLE_ENABLED=false
         fi
-        local port=$(grep "dozzle_port:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*dozzle_port: *//' | tr -d '\r')
+        # Extraire seulement le nombre du port (ignorer le commentaire #)
+        local port=$(grep "dozzle_port:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*dozzle_port: *//' | sed 's/ *#.*//' | tr -d '\r')
         if [ -n "$port" ]; then
             DOZZLE_PORT=$port
         fi
     fi
+}
+
+# Fonction pour charger les variables d'environnement partagées
+get_shared_env_vars() {
+    local service_name="$1"
+    local shared_vars=""
+
+    # Vérifier si le fichier config existe
+    [ ! -f "$CONFIG_FILE" ] && echo "" && return
+
+    # Vérifier si shared_env est activé
+    local enabled=$(grep -A 10 "^shared_env_config:" "$CONFIG_FILE" | grep "enabled:" | sed 's/.*enabled: *//' | tr -d '\r' | head -1)
+    [ "$enabled" = "false" ] && echo "" && return
+
+    # Récupérer les groupes auto_inject
+    local auto_inject_groups=""
+    local in_auto_inject=false
+    while IFS= read -r line; do
+        if echo "$line" | grep -q "^  auto_inject:"; then
+            in_auto_inject=true
+            continue
+        fi
+        if [ "$in_auto_inject" = true ]; then
+            if echo "$line" | grep -q "^    - "; then
+                local group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                auto_inject_groups="${auto_inject_groups} ${group}"
+            else
+                break
+            fi
+        fi
+    done < "$CONFIG_FILE"
+
+    # Vérifier si le service est exclu
+    if [ -n "$service_name" ]; then
+        local in_exclude=false
+        while IFS= read -r line; do
+            if echo "$line" | grep -q "^  exclude_services:"; then
+                in_exclude=true
+                continue
+            fi
+            if [ "$in_exclude" = true ]; then
+                if echo "$line" | grep -q "^    - "; then
+                    local excluded_service=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                    if [ "$excluded_service" = "$service_name" ]; then
+                        echo ""
+                        return
+                    fi
+                else
+                    break
+                fi
+            fi
+        done < "$CONFIG_FILE"
+    fi
+
+    # Récupérer les groupes service_specific pour ce service
+    local service_groups=""
+    if [ -n "$service_name" ]; then
+        local in_service_specific=false
+        local in_current_service=false
+        while IFS= read -r line; do
+            if echo "$line" | grep -q "^  service_specific:"; then
+                in_service_specific=true
+                continue
+            fi
+            if [ "$in_service_specific" = true ]; then
+                if echo "$line" | grep -q "^    ${service_name}:"; then
+                    in_current_service=true
+                    continue
+                fi
+                if [ "$in_current_service" = true ]; then
+                    if echo "$line" | grep -q "^      - "; then
+                        local group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                        service_groups="${service_groups} ${group}"
+                    else
+                        in_current_service=false
+                        [ $(echo "$line" | grep -c "^    [a-z]") -eq 0 ] && break
+                    fi
+                fi
+            fi
+        done < "$CONFIG_FILE"
+    fi
+
+    # Combiner tous les groupes
+    local all_groups="${auto_inject_groups} ${service_groups}"
+
+    # Extraire les variables de chaque groupe
+    for group in $all_groups; do
+        [ -z "$group" ] && continue
+
+        local in_shared_env=false
+        local in_group=false
+        while IFS= read -r line; do
+            if echo "$line" | grep -q "^shared_env:"; then
+                in_shared_env=true
+                continue
+            fi
+            if [ "$in_shared_env" = true ]; then
+                if echo "$line" | grep -q "^  ${group}:"; then
+                    in_group=true
+                    continue
+                fi
+                if [ "$in_group" = true ]; then
+                    if echo "$line" | grep -q "^    - "; then
+                        local var=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                        shared_vars="${shared_vars}${var}"$'\n'
+                    else
+                        in_group=false
+                        [ $(echo "$line" | grep -c "^  [a-z]") -eq 0 ] && break
+                    fi
+                fi
+            fi
+        done < "$CONFIG_FILE"
+    done
+
+    echo "$shared_vars"
 }
 
 # Fonction pour lister les profils
@@ -201,10 +317,12 @@ generate_docker_compose() {
     
     load_config
     
-    # Header
-    cat > "$DOCKER_COMPOSE_FILE" << 'EOF'
+    # Header avec timestamp
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    cat > "$DOCKER_COMPOSE_FILE" << EOF
 # Généré automatiquement par manage-profiles.sh
 # NE PAS ÉDITER MANUELLEMENT - Vos modifications seront écrasées
+# Dernière génération : $timestamp
 
 services:
   # Reverse Proxy Traefik
@@ -265,20 +383,37 @@ EOF
             continue
         fi
         
-        echo -e "  \033[92m✅ Ajout : $(basename $profile .yml)\033[0m"
-        
         local name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
-        local always_active=$(grep -m1 "^always_active:" "$profile" | sed 's/always_active: *//' | tr -d '\r' || echo "true")
-        local docker_profile=$(grep -m1 "^docker_profile:" "$profile" | sed 's/docker_profile: *//' | tr -d '\r')
-        [ "$docker_profile" = "null" ] && docker_profile=""
-        
+        echo -e "  \033[92m✅ Ajout : $(basename $profile .yml)\033[0m"
+
+        # Charger les variables partagées pour ce service
+        local shared_env_vars=$(get_shared_env_vars "$name")
+        local shared_count=0
+        if [ -n "$shared_env_vars" ]; then
+            shared_count=$(echo "$shared_env_vars" | grep -c "^" || echo 0)
+            echo -e "    \033[90m📌 $shared_count variable(s) partagée(s)\033[0m"
+        fi
+
+        local always_active=$(grep -m1 "^always_active:" "$profile" | sed 's/always_active: *//' | sed 's/ *#.*//' | tr -d '\r' || echo "true")
+        local docker_profile_raw=$(grep -m1 "^docker_profile:" "$profile" | sed 's/docker_profile: *//' | sed 's/ *#.*//' | tr -d '\r')
+        # Considérer null, vide, ou whitespace comme absence de profil
+        local docker_profile=$(echo "$docker_profile_raw" | xargs)  # trim whitespace
+        if [ "$docker_profile" = "null" ] || [ -z "$docker_profile" ]; then
+            docker_profile=""
+        fi
+
         # Extraire la section docker-compose:
         local compose_section=$(sed -n '/^docker-compose:/,/^[a-z]/{//!p}' "$profile")
         
-        # Filtrer la section ports:
+        # Traiter la section environment pour injecter les variables partagées
         local filtered_compose=""
         local in_ports=false
+        local in_environment=false
+        local environment_found=false
+        local environment_indent="    "
+
         while IFS= read -r line; do
+            # Gérer la section ports
             if echo "$line" | grep -q "^  ports:"; then
                 in_ports=true
                 continue
@@ -290,22 +425,62 @@ EOF
                     in_ports=false
                 fi
             fi
+
+            # Détecter la section environment
+            if echo "$line" | grep -q "^  environment:"; then
+                environment_found=true
+                filtered_compose="${filtered_compose}${line}"$'\n'
+
+                # Injecter les variables partagées juste après environment:
+                if [ -n "$shared_env_vars" ]; then
+                    filtered_compose="${filtered_compose}    # Variables partagées (depuis config.yml)"$'\n'
+                    while IFS= read -r var; do
+                        [ -n "$var" ] && filtered_compose="${filtered_compose}    - ${var}"$'\n'
+                    done <<< "$shared_env_vars"
+                fi
+                in_environment=true
+                continue
+            fi
+
             filtered_compose="${filtered_compose}${line}"$'\n'
         done <<< "$compose_section"
         
+        # Si pas de section environment, en créer une avec les variables partagées
+        if [ "$environment_found" = false ] && [ -n "$shared_env_vars" ]; then
+            local new_compose=""
+            local added=false
+            while IFS= read -r line; do
+                new_compose="${new_compose}${line}"$'\n'
+                # Ajouter environment après image/container_name
+                if [ "$added" = false ] && echo "$line" | grep -q "^  container_name:"; then
+                    new_compose="${new_compose}  environment:"$'\n'
+                    new_compose="${new_compose}    # Variables partagées (depuis config.yml)"$'\n'
+                    while IFS= read -r var; do
+                        [ -n "$var" ] && new_compose="${new_compose}    - ${var}"$'\n'
+                    done <<< "$shared_env_vars"
+                    added=true
+                fi
+            done <<< "$filtered_compose"
+            filtered_compose="$new_compose"
+        fi
+
         # Ajouter 2 espaces d'indentation
         local indented=$(echo "$filtered_compose" | sed 's/^  /    /')
         
-        # Section profiles si not always_active
+        # Nettoyer l'indentation (retirer les lignes vides en fin)
+        indented=$(echo "$indented" | sed -e :a -e '/^\s*$/d;N;ba')
+
+        # Section profiles si not always_active ET docker_profile n'est pas null/vide
         local profiles_section=""
-        if [ "$always_active" != "true" ] && [ -n "$docker_profile" ]; then
+        if [ "$always_active" != "true" ] && [ -n "$docker_profile" ] && [ "$docker_profile" != "null" ]; then
             profiles_section=$'\n'"    profiles:"$'\n'"      - $docker_profile"
         fi
         
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
   # Service: $name
   $name:
-$indented    extra_hosts:
+$indented
+    extra_hosts:
       - "external-ip:host-gateway"
     networks:
       - traefik-network$profiles_section

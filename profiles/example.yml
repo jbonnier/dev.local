@@ -32,9 +32,18 @@ docker-compose:
   ports:
     - "${EXAMPLE_PORT:-8090}:80"
   environment:
+    # NOTE : Les variables partagées depuis config.yml sont automatiquement injectées
+    # Elles apparaîtront en premier dans docker-compose.yml avec un commentaire
+    # Ex: LOG_LEVEL, NODE_ENV, API_GATEWAY_URL, etc.
+    #
+    # Les variables ci-dessous sont spécifiques à ce service et seront ajoutées après
     - ENV_MODE=docker
     - SERVICE_NAME=example
     - EXAMPLE_API_KEY=${EXAMPLE_API_KEY:-default-key}
+    # Variables référençant config.yml shared_env (exemple) :
+    # Ces variables seront automatiquement disponibles sans les redéfinir :
+    # - LOG_LEVEL (depuis shared_env.global)
+    # - API_GATEWAY_URL (depuis shared_env.external_services)
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:80/"]
     interval: 30s

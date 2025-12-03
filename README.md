@@ -233,6 +233,58 @@ Le script vous guidera pour :
 - Secrets requis
 - Configuration Traefik
 
+## 🔄 Variables d'environnement partagées
+
+Dev.Local supporte l'injection automatique de variables d'environnement communes à tous vos services. Ceci est idéal pour :
+
+- 🌐 URLs de services externes (APIs, passerelles, authentification)
+- 🔧 Configuration commune (log level, timezone, environnement)
+- 📊 Paramètres partagés entre microservices
+
+### Configuration dans `config.yml`
+
+```yaml
+# Variables d'environnement partagées
+shared_env:
+  # Variables globales pour tous les services
+  global:
+    - LOG_LEVEL=info
+    - NODE_ENV=development
+    - TZ=America/Toronto
+  
+  # Variables pour des services externes
+  external_services:
+    - API_GATEWAY_URL=https://api.example.com
+    - AUTH_SERVICE_URL=https://auth.example.com
+    - MESSAGING_SERVICE_URL=https://messaging.example.com
+
+# Configuration de l'injection
+shared_env_config:
+  enabled: true
+  auto_inject:
+    - global
+    - external_services
+  exclude_services: []  # Services à exclure
+```
+
+### Utilisation
+
+Les variables partagées sont automatiquement injectées lors de la génération :
+
+```powershell
+.\manage-profiles.ps1 -Action generate
+```
+
+Le script affichera le nombre de variables injectées pour chaque service :
+```
+✅ Ajout : mon-service
+   📌 6 variable(s) partagée(s)
+```
+
+**Note :** Les variables du profil ont priorité sur les variables partagées en cas de conflit.
+
+📚 **Documentation complète :** [docs/shared-env-guide.md](docs/shared-env-guide.md)
+
 ## 🔐 Gestion des secrets avec SOPS
 
 ### Éditer les secrets

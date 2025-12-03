@@ -49,14 +49,41 @@ chmod +x menu.sh manage-profiles.sh launch.sh
 # Regénérer docker-compose.yml
 ./manage-profiles.sh generate
 
-# Initialiser secrets.env
-./manage-profiles.sh init-secrets
+# Regénérer docker-compose.yml
+./manage-profiles.sh generate
 
 # Synchroniser les secrets
 ./manage-profiles.sh sync-secrets
 ```
 
-### Lancement des services
+### Variables d'environnement partagées
+
+Les scripts bash supportent également les variables d'environnement partagées via `config.yml` :
+
+```bash
+# Éditer la configuration
+nano config.yml
+
+# Ajouter vos variables partagées
+# shared_env:
+#   global:
+#     - API_URL=https://api.example.com
+#     - LOG_LEVEL=info
+
+# Regénérer avec les variables partagées
+./manage-profiles.sh generate
+```
+
+Le script affichera automatiquement le nombre de variables partagées injectées dans chaque service :
+
+```
+✅ Ajout : mon-service
+   📌 6 variable(s) partagée(s)
+```
+
+📚 **Documentation complète :** [docs/shared-env-guide.md](docs/shared-env-guide.md)
+
+### Orchestration des services
 
 ```bash
 # Démarrer tous les services

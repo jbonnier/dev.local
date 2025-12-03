@@ -14,3 +14,44 @@ registries:
   ecr:
     url: <id>.dkr.ecr.ca-central-1.amazonaws.com
     description: "AWS ECR - Elastic Container Registry"
+
+# Variables d'environnement partagées
+# Ces variables seront injectées dans tous les services (ou services spécifiques)
+shared_env:
+  # Variables globales pour tous les services
+  global:
+    - LOG_LEVEL=info
+    - NODE_ENV=development
+    - TZ=America/Toronto
+
+  # Variables pour des services externes communs
+  external_services:
+    - API_GATEWAY_URL=https://api.example.com
+    - AUTH_SERVICE_URL=https://auth.example.com
+    - MESSAGING_SERVICE_URL=https://messaging.example.com
+
+  # Variables personnalisées (exemples)
+  # custom:
+  #   - DATABASE_POOL_SIZE=10
+  #   - CACHE_TTL=3600
+
+# Configuration de l'injection des variables partagées
+shared_env_config:
+  # Activer l'injection automatique
+  enabled: true
+
+  # Groupes à injecter automatiquement dans tous les services
+  auto_inject:
+    - global
+    - external_services
+
+  # Exclure certains services de l'injection automatique
+  exclude_services:
+    - traefik
+    - dozzle
+
+  # Inclure des groupes spécifiques pour certains services
+  # service_specific:
+  #   mon-service:
+  #     - custom
+

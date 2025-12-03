@@ -44,6 +44,78 @@ $DefaultConfig = @{
     dozzle_port = 9999
 }
 
+# Fonction pour charger les variables d'environnement partagées
+function Get-SharedEnvironmentVariables {
+    param(
+        [string]$ServiceName = $null
+    )
+
+    if (-not (Test-Path $ConfigFile)) {
+        return @()
+    }
+
+    $configContent = Get-Content $ConfigFile -Raw
+
+    # Vérifier si shared_env est activé
+    $enabled = $true
+    if ($configContent -match 'shared_env_config:\s*[\r\n]+(?:.*[\r\n]+)*?\s*enabled:\s*(true|false)') {
+        $enabled = $matches[1] -eq 'true'
+    }
+
+    if (-not $enabled) {
+        return @()
+    }
+
+    $sharedVars = @()
+
+    # Extraire les groupes auto_inject
+    $autoInjectGroups = @('global')
+    if ($configContent -match 'auto_inject:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)') {
+        $autoInjectGroups = ($matches[1] -split '[\r\n]+' | ForEach-Object {
+            if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
+        }) | Where-Object { $_ }
+    }
+
+    # Extraire les services exclus
+    $excludeServices = @()
+    if ($configContent -match 'exclude_services:\s*\[(.*?)\]') {
+        $excludeServices = $matches[1] -split ',' | ForEach-Object { $_.Trim().Trim('"').Trim("'") }
+    } elseif ($configContent -match 'exclude_services:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)') {
+        $excludeServices = ($matches[1] -split '[\r\n]+' | ForEach-Object {
+            if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
+        }) | Where-Object { $_ }
+    }
+
+    # Vérifier si ce service est exclu
+    if ($ServiceName -and $excludeServices -contains $ServiceName) {
+        return @()
+    }
+
+    # Extraire les groupes service-specific
+    $serviceGroups = @()
+    if ($ServiceName -and $configContent -match "service_specific:\s*[\r\n]+(?:.*[\r\n]+)*?\s*${ServiceName}:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)") {
+        $serviceGroups = ($matches[1] -split '[\r\n]+' | ForEach-Object {
+            if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
+        }) | Where-Object { $_ }
+    }
+
+    # Combiner tous les groupes à charger
+    $allGroups = $autoInjectGroups + $serviceGroups | Select-Object -Unique
+
+    # Extraire les variables de chaque groupe
+    foreach ($group in $allGroups) {
+        if ($configContent -match "shared_env:\s*[\r\n]+(?:.*[\r\n]+)*?\s*${group}:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)") {
+            $groupVars = ($matches[1] -split '[\r\n]+' | ForEach-Object {
+                if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
+            }) | Where-Object { $_ }
+
+            $sharedVars += $groupVars
+        }
+    }
+
+    return $sharedVars
+}
+
 # Fonction pour charger un profil YAML
 function Read-ProfileYaml {
     param([string]$Path)
@@ -240,9 +312,11 @@ function Generate-DockerCompose {
     }
     
     # Header
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $compose = @"
 # Généré automatiquement par manage-profiles.ps1
 # NE PAS ÉDITER MANUELLEMENT - Vos modifications seront écrasées
+# Dernière génération : $timestamp
 
 services:
   # Reverse Proxy Traefik
@@ -323,6 +397,14 @@ services:
         $dockerProfile = if ($content -match 'docker_profile:\s*(.+)') { $matches[1].Trim() } else { $null }
         if ($dockerProfile -eq 'null') { $dockerProfile = $null }
         
+        # Charger les variables d'environnement partagées pour ce service
+        $sharedEnvVars = Get-SharedEnvironmentVariables -ServiceName $name
+        $sharedEnvCount = $sharedEnvVars.Count
+
+        if ($sharedEnvCount -gt 0) {
+            Write-Host "    📌 $sharedEnvCount variable(s) partagée(s)" -ForegroundColor DarkGray
+        }
+
         if ($content -match 'docker-compose:\s*[\r\n]+((  [^#\r\n].+[\r\n]+)+)') {
             # Extraire tout le contenu sous docker-compose:
             $rawContent = $matches[1] -replace '[\r\n]+$', ''
@@ -331,7 +413,9 @@ services:
             $lines = $rawContent -split '[\r\n]+'
             $filteredLines = @()
             $skipPortsSection = $false
-            
+            $environmentSectionFound = $false
+            $environmentLines = @()
+
             foreach ($line in $lines) {
                 if ($line -match '^  ports:') {
                     $skipPortsSection = $true
@@ -345,9 +429,47 @@ services:
                         $skipPortsSection = $false
                     }
                 }
+
+                # Détecter la section environment
+                if ($line -match '^  environment:') {
+                    $environmentSectionFound = $true
+                }
+
                 $filteredLines += $line
             }
             
+            # Injecter les variables partagées dans la section environment
+            if ($sharedEnvCount -gt 0) {
+                if ($environmentSectionFound) {
+                    # Trouver où insérer les variables partagées (après environment:)
+                    $newFilteredLines = @()
+                    $injected = $false
+
+                    for ($i = 0; $i -lt $filteredLines.Count; $i++) {
+                        $line = $filteredLines[$i]
+                        $newFilteredLines += $line
+
+                        if (-not $injected -and $line -match '^  environment:') {
+                            # Injecter les variables partagées juste après environment:
+                            $newFilteredLines += "    # Variables partagées (depuis config.yml)"
+                            foreach ($var in $sharedEnvVars) {
+                                $newFilteredLines += "    - $var"
+                            }
+                            $injected = $true
+                        }
+                    }
+
+                    $filteredLines = $newFilteredLines
+                } else {
+                    # Pas de section environment, en créer une
+                    $filteredLines += "  environment:"
+                    $filteredLines += "    # Variables partagées (depuis config.yml)"
+                    foreach ($var in $sharedEnvVars) {
+                        $filteredLines += "    - $var"
+                    }
+                }
+            }
+
             # Ajouter 2 espaces d'indentation à chaque ligne (passer de 2 à 4 espaces)
             $dockerComposeContent = ($filteredLines -join "`r`n") -replace '(?m)^  ', '    '
             

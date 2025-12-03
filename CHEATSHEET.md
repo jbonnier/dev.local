@@ -68,7 +68,7 @@ Dev.Local.2.0/
 ├── manage-profiles.ps1 / .sh          # Gestion profils
 ├── launch.ps1 / .sh                   # Orchestration
 ├── docker-compose.yml                 # Généré automatiquement
-├── config.yml                         # Config Dozzle
+├── config.yml                         # Config globale + vars partagées
 ├── secrets.env                        # Chiffré SOPS
 ├── .sops.yaml                         # Config SOPS
 ├── profiles/                          # Profils de services
@@ -81,9 +81,42 @@ Dev.Local.2.0/
 └── docs/
     ├── README.md
     ├── BASH_README.md
-    ├── MIGRATION_GUIDE.md
+    ├── shared-env-guide.md            # Guide vars partagées
     └── ...
 ```
+
+## 🔄 Variables d'Environnement Partagées
+
+### Configuration (config.yml)
+
+```yaml
+shared_env:
+  global:
+    - LOG_LEVEL=info
+    - API_URL=https://api.example.com
+  
+shared_env_config:
+  enabled: true
+  auto_inject:
+    - global
+```
+
+### Utilisation
+
+```powershell
+# Éditer les variables partagées
+notepad config.yml
+
+# Regénérer avec les nouvelles variables
+.\manage-profiles.ps1 -Action generate
+
+# Vérifier l'injection
+Get-Content docker-compose.yml | Select-String "Variables partagées"
+```
+
+**💡 Astuce :** Les variables partagées sont injectées automatiquement dans tous les services. Parfait pour les URLs de services externes !
+
+📚 **Guide complet :** [docs/shared-env-guide.md](docs/shared-env-guide.md)
 
 ## 🎯 Workflows Courants
 
