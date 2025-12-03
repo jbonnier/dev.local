@@ -2,6 +2,26 @@
 
 Un système modulaire et générique pour gérer des services Docker avec profils dynamiques et gestion sécurisée des secrets via SOPS.
 
+## 📑 Table des matières
+
+- [💡 À quoi sert Dev.Local ?](#-à-quoi-sert-devlocal-)
+- [🎯 Caractéristiques](#-caractéristiques)
+- [🚀 Démarrage rapide](#-démarrage-rapide)
+- [📁 Structure du projet](#-structure-du-projet)
+- [🎮 Utilisation](#-utilisation)
+- [📝 Ajouter un nouveau service](#-ajouter-un-nouveau-service)
+- [📋 Format d'un profil](#-format-dun-profil)
+- [🔄 Variables d'environnement partagées](#-variables-denvironnement-partagées)
+- [🔐 Gestion des secrets avec SOPS](#-gestion-des-secrets-avec-sops)
+- [🔧 Configuration avancée](#-configuration-avancée)
+- [🛠️ Scripts et commandes](#️-scripts-et-commandes)
+- [📚 Exemples pratiques](#-exemples-pratiques)
+- [☁️ AWS et Docker Registry](#️-aws-et-docker-registry)
+- [🐧 Support Linux/macOS](#-support-linuxmacos)
+- [🔒 Sécurité](#-sécurité)
+- [📚 Documentation complète](#-documentation-complète)
+- [📄 Licence](#-licence)
+
 ## 💡 À quoi sert Dev.Local ?
 
 **Dev.Local** est un environnement de développement local orchestré qui simplifie la gestion de multiples services Docker. Il vous permet de :
@@ -28,25 +48,105 @@ Un système modulaire et générique pour gérer des services Docker avec profil
 
 ## 🚀 Démarrage rapide
 
-### 1. Prérequis
+### Prérequis
 
+**Obligatoires :**
 - Docker & Docker Compose v2+
-- PowerShell 5.1+
-- SOPS (binaire installé)
-- AWS CLI (optionnel, pour KMS)
+- PowerShell 5.1+ (Windows) ou Bash (Linux/macOS)
+- SOPS (binaire installé et dans le PATH)
 
-### 2. Configuration initiale
+**Optionnels :**
+- AWS CLI (pour utiliser AWS KMS avec SOPS)
+- Just command runner (recommandé pour faciliter l'utilisation)
+- Age (alternative à AWS KMS pour SOPS)
+
+### Installation de SOPS
+
+**Windows (Chocolatey) :**
+```powershell
+choco install sops
+```
+
+**Linux :**
+```bash
+# Via release GitHub
+wget https://github.com/mozilla/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
+chmod +x /usr/local/bin/sops
+```
+
+**macOS (Homebrew) :**
+```bash
+brew install sops
+```
+
+### Configuration initiale
+
+#### 1. Configurer SOPS
+
+**Option A : Utiliser Age (recommandé pour débuter)**
 
 ```powershell
-# Connexion AWS (si utilisation de KMS)
+# Générer une clé Age
+age-keygen -o age-key.txt
+
+# Copier la clé publique affichée (commence par "age1...")
+# Éditer .sops.yaml et remplacer la clé Age par la vôtre
+
+# Définir la clé privée
+$env:SOPS_AGE_KEY_FILE = "$(Get-Location)\age-key.txt"
+```
+
+**Option B : Utiliser AWS KMS**
+
+```powershell
+# Se connecter à AWS SSO
 .\launch.ps1 -c sso
 
-# Créer le fichier de secrets
-.\manage-profiles.ps1 -Action init-secrets
-
-# Démarrer le menu
-.\menu.ps1
+# Éditer .sops.yaml avec votre ARN KMS
+# kms: 'arn:aws:kms:REGION:ACCOUNT:key/KEY-ID'
 ```
+
+#### 2. Initialiser le fichier de secrets
+
+```powershell
+# Créer et éditer secrets.env (chiffré automatiquement)
+.\manage-profiles.ps1 -Action init-secrets
+```
+
+#### 3. Créer votre premier profil de service
+
+```powershell
+# Via le menu interactif (recommandé pour débuter)
+.\menu.ps1
+
+# Ou en ligne de commande
+.\manage-profiles.ps1 -Action add
+```
+
+#### 4. Générer et démarrer
+
+```powershell
+# Générer docker-compose.yml
+.\manage-profiles.ps1 -Action generate
+
+# Démarrer tous les services
+.\launch.ps1
+
+# OU utiliser Just (si installé)
+just generate
+just start
+```
+
+### Vérification de l'installation
+
+Après le démarrage, vérifiez que tout fonctionne :
+
+- **Traefik Dashboard :** http://localhost:8081/
+- **Dozzle (logs) :** http://localhost:9999/ ou http://localhost:8080/logs
+- **Vos services :** http://localhost:8080/[prefix-du-service]
+
+📚 **Guide détaillé :** Consultez [QUICKSTART.md](QUICKSTART.md) pour un tutoriel pas-à-pas complet.
 
 ## 📁 Structure du projet
 
@@ -211,27 +311,58 @@ Options disponibles :
 
 ## 📝 Ajouter un nouveau service
 
-### Option 1 : Via le menu interactif
+### Méthodes disponibles
+
+#### Option 1 : Menu interactif (Recommandé pour débuter)
 
 ```powershell
+# Windows
 .\menu.ps1
-# Choisir "3. Gérer les profils"
-# Choisir "Ajouter un nouveau profil"
+
+# Linux/macOS
+./menu.sh
+
+# Avec Just
+just menu
 ```
 
-### Option 2 : Via la ligne de commande
+Puis choisir : **"Ajouter un nouveau profil"**
+
+#### Option 2 : Ligne de commande
 
 ```powershell
+# Windows
 .\manage-profiles.ps1 -Action add
+
+# Linux/macOS
+./manage-profiles.sh add
 ```
 
-Le script vous guidera pour :
-- Nom du service
-- Image Docker
-- Port d'exposition
-- Variables d'environnement
-- Secrets requis
-- Configuration Traefik
+Le script vous guidera étape par étape pour configurer :
+- ✅ Nom du service
+- ✅ Description
+- ✅ Image Docker (avec support de variables)
+- ✅ Ports (conteneur et hôte)
+- ✅ Variables d'environnement
+- ✅ Secrets requis (stockés dans secrets.env chiffré)
+- ✅ Configuration Traefik (routing HTTP)
+- ✅ Health checks
+
+### Exemple de création guidée
+
+```
+Nom du service: mon-api
+Description: Mon API REST backend
+Image Docker: ${MON_API_IMAGE:-myregistry/api}:${MON_API_TAG:-latest}
+Port du service (conteneur): 8000
+Port hôte: 8001
+Activer Traefik ? (O/n): o
+Préfixe de route: /api
+Supprimer le préfixe avant transmission ? (O/n): o
+Port du service pour Traefik: 8000
+```
+
+Le profil sera créé dans `profiles/mon-api.yml`.
 
 ## 🔄 Variables d'environnement partagées
 
@@ -557,82 +688,196 @@ Modifier `traefik/traefik.yml` pour :
 - Configurer les certificats
 - Ajouter des middlewares
 
-## 🛠️ Scripts disponibles
+## 🛠️ Scripts et commandes disponibles
 
-| Script | Description | Équivalent Just |
-|--------|-------------|-----------------|
-| `menu.ps1` / `menu.sh` | Menu interactif principal | `just menu` |
-| `launch.ps1` / `launch.sh` | Gestion des services Docker | - |
-| `manage-profiles.ps1` / `manage-profiles.sh` | Gestion des profils de services | - |
+### Scripts principaux
 
-### Commandes disponibles
+| Script | Windows | Linux/macOS | Just | Description |
+|--------|---------|-------------|------|-------------|
+| **Menu interactif** | `.\menu.ps1` | `./menu.sh` | `just menu` | Interface guidée pour toutes les opérations |
+| **Lancer services** | `.\launch.ps1` | `./launch.sh start` | `just start` | Orchestration des services Docker |
+| **Gérer profils** | `.\manage-profiles.ps1` | `./manage-profiles.sh` | - | Gestion des profils de services |
 
-#### Services Docker
-| Commande | Just | PowerShell | Bash | Description |
-|----------|------|------------|------|-------------|
-| Démarrer | `just start` | `.\launch.ps1 start` | `./launch.sh start` | Démarrer tous les services |
-| Démarrer profils | `just start-profile example,emp` | `.\launch.ps1 -p example,emp` | `./launch.sh --profile example,emp start` | Démarrer des profils spécifiques |
-| Arrêter | `just stop` | `.\launch.ps1 stop` | `./launch.sh stop` | Arrêter tous les services |
-| Redémarrer | `just restart` | `.\launch.ps1 recreate` | `./launch.sh recreate` | Recréer les services |
-| Lister | `just ps` | `.\launch.ps1 ps` | `./launch.sh ps` | Lister les containers |
-| Logs | `just logs [service]` | `.\launch.ps1 logs [-service xxx]` | `./launch.sh logs [service]` | Voir les logs |
+### Commandes par catégorie
 
-#### Profils
-| Commande | Just | PowerShell | Bash | Description |
-|----------|------|------------|------|-------------|
-| Lister | `just profiles` | `.\manage-profiles.ps1 list` | `./manage-profiles.sh list` | Lister les profils |
-| Générer | `just generate` | `.\manage-profiles.ps1 generate` | `./manage-profiles.sh generate` | Regénérer docker-compose.yml |
-| Valider | `just validate` | - | - | Valider la configuration |
+#### 🐳 Services Docker
 
-#### Secrets (SOPS)
-| Commande | Just | PowerShell | Bash | Description |
-|----------|------|------------|------|-------------|
-| Éditer | `just secrets-edit` | `.\launch.ps1 edit-secrets` | `./launch.sh edit-secrets` | Éditer les secrets |
-| Voir | `just secrets-view` | `.\launch.ps1 view-secrets` | `./launch.sh view-secrets` | Voir les secrets déchiffrés |
+| Action | Just | PowerShell | Bash |
+|--------|------|------------|------|
+| Démarrer tous | `just start` | `.\launch.ps1` | `./launch.sh start` |
+| Démarrer profils | `just start-profile api,ui` | `.\launch.ps1 -p api,ui` | `./launch.sh --profile api,ui start` |
+| Arrêter | `just stop` | `.\launch.ps1 stop` | `./launch.sh stop` |
+| Redémarrer | `just restart` | `.\launch.ps1 recreate` | `./launch.sh recreate` |
+| Statut | `just ps` | `.\launch.ps1 ps` | `./launch.sh ps` |
+| Logs tous | `just logs` | `.\launch.ps1 logs` | `./launch.sh logs` |
+| Logs service | `just logs api` | `.\launch.ps1 logs -service api` | `./launch.sh logs api` |
+| Nettoyer | `just clean` | `docker compose down -v` | `docker compose down -v` |
 
-#### AWS et Docker Registry
-| Commande | Just | PowerShell | Bash | Description |
-|----------|------|------------|------|-------------|
-| AWS SSO | `just aws-sso` | `.\launch.ps1 sso` | `./launch.sh sso` | Connexion AWS SSO |
-| Identité AWS | `just aws-id` | `.\launch.ps1 id` | `./launch.sh id` | Afficher l'identité AWS |
-| ECR Login | `just ecr-login` | `.\launch.ps1 ecr-login` | `./launch.sh ecr-login` | Login Docker à AWS ECR |
-| JFrog Login | `just jfrog-login` | `.\launch.ps1 jfrog-login` | `./launch.sh jfrog-login` | Login Docker à JFrog |
+#### 📋 Profils de services
 
-#### Utilitaires
-| Commande | Just | PowerShell | Bash | Description |
-|----------|------|------------|------|-------------|
-| Menu | `just menu` | `.\menu.ps1` | `./menu.sh` | Lancer le menu interactif |
-| Nettoyer | `just clean` | `docker compose down -v` | `docker compose down -v` | Nettoyer containers et volumes |
-| Config | `just config` | `docker compose config` | `docker compose config` | Afficher la config finale |
+| Action | Just | PowerShell | Bash |
+|--------|------|------------|------|
+| Lister | `just profiles` | `.\manage-profiles.ps1 list` | `./manage-profiles.sh list` |
+| Ajouter | - | `.\manage-profiles.ps1 add` | `./manage-profiles.sh add` |
+| Générer | `just generate` | `.\manage-profiles.ps1 generate` | `./manage-profiles.sh generate` |
+| Valider | `just validate` | `docker compose config --quiet` | `docker compose config --quiet` |
 
-## 📚 Exemples
+#### 🔐 Secrets (SOPS)
 
-### Ajouter un service API
+| Action | Just | PowerShell | Bash |
+|--------|------|------------|------|
+| Éditer | `just secrets-edit` | `.\launch.ps1 edit-secrets` | `./launch.sh edit-secrets` |
+| Voir | `just secrets-view` | `.\launch.ps1 view-secrets` | `./launch.sh view-secrets` |
+| Initialiser | - | `.\manage-profiles.ps1 init-secrets` | `./manage-profiles.sh init-secrets` |
+| Synchroniser | - | `.\manage-profiles.ps1 sync-secrets` | `./manage-profiles.sh sync-secrets` |
+
+#### ☁️ AWS et Docker Registry
+
+| Action | Just | PowerShell | Bash |
+|--------|------|------------|------|
+| AWS SSO Login | `just aws-sso` | `.\launch.ps1 sso` | `./launch.sh sso` |
+| AWS Identity | `just aws-id` | `.\launch.ps1 id` | `./launch.sh id` |
+| ECR Login | `just ecr-login` | `.\launch.ps1 ecr-login` | `./launch.sh ecr-login` |
+| JFrog Login | `just jfrog-login` | `.\launch.ps1 jfrog-login` | `./launch.sh jfrog-login` |
+
+#### 🔧 Utilitaires
+
+| Action | Just | PowerShell | Bash |
+|--------|------|------------|------|
+| Config finale | `just config` | `docker compose config` | `docker compose config` |
+| Vérifier perms .sh | - | `.\fix-sh-permissions.ps1` | `chmod +x *.sh` |
+| Menu | `just menu` | `.\menu.ps1` | `./menu.sh` |
+
+### Raccourcis Just (aliases)
+
+Si vous utilisez Just, ces raccourcis sont disponibles :
+
+```bash
+just s     # start
+just st    # stop
+just r     # restart
+just p     # ps (statut)
+just g     # generate
+just v     # validate
+just l     # logs
+just m     # menu
+```
+
+## 📚 Exemples pratiques
+
+### Exemple 1 : API Backend + Frontend
+
+Créer une stack complète API + Frontend avec routing Traefik :
 
 ```powershell
+# 1. Ajouter le backend
 .\manage-profiles.ps1 -Action add
 # Nom: api-backend
-# Image: myregistry/api:latest
-# Port: 8002
-# Prefix Traefik: /api
-# Secrets: API_SECRET_KEY, DB_PASSWORD
-```
+# Image: ${API_IMAGE:-myregistry/api}:${API_TAG:-latest}
+# Port: 8000 -> 8001
+# Traefik: oui, /api, strip_prefix: oui
 
-### Ajouter un service Frontend
-
-```powershell
+# 2. Ajouter le frontend
 .\manage-profiles.ps1 -Action add
 # Nom: frontend
-# Image: myregistry/frontend:latest
-# Port: 3000
-# Prefix Traefik: /
-# Secrets: (aucun)
+# Image: ${FRONTEND_IMAGE:-myregistry/frontend}:${FRONTEND_TAG:-latest}
+# Port: 3000 -> 3001
+# Traefik: oui, /, strip_prefix: non
+
+# 3. Configurer les secrets
+.\launch.ps1 -c edit-secrets
+# Ajouter:
+# API_BACKEND_DB_PASSWORD=secret123
+# API_BACKEND_API_KEY=mykey456
+
+# 4. Configurer les variables partagées (optionnel)
+# Éditer config.yml et ajouter des URLs communes
+
+# 5. Démarrer
+.\launch.ps1 -p api-backend,frontend
+# OU avec Just:
+just start-profile api-backend,frontend
+
+# 6. Tester
+# Frontend : http://localhost:8080/
+# API : http://localhost:8080/api
+# Traefik Dashboard : http://localhost:8081/
+# Dozzle (logs) : http://localhost:9999/
 ```
 
-### Démarrer uniquement certains services
+### Exemple 2 : Microservices avec services externes
+
+Utiliser les variables partagées pour des URLs communes :
+
+```yaml
+# config.yml
+shared_env:
+  global:
+    - LOG_LEVEL=info
+    - NODE_ENV=development
+  
+  external_services:
+    - AUTH_SERVICE_URL=https://auth.mycompany.com
+    - PAYMENT_API_URL=https://api.stripe.com/v1
+    - STORAGE_URL=https://s3.amazonaws.com/mybucket
+```
+
+Tous vos services auront automatiquement accès à ces variables !
+
+### Exemple 3 : Basculer entre environnements
+
+Utiliser des variables d'environnement pour basculer entre dev/staging/prod :
 
 ```powershell
-.\launch.ps1 -p api-backend,frontend
+# Développement local
+$env:API_IMAGE="api"; $env:API_TAG="local"
+.\launch.ps1 -p api-backend
+
+# Staging
+$env:API_IMAGE="myregistry/api"; $env:API_TAG="staging"
+.\launch.ps1 -p api-backend
+
+# Production
+$env:API_IMAGE="myregistry/api"; $env:API_TAG="v2.1.0"
+.\launch.ps1 -p api-backend
+
+# Ou via fichier .env (persistent)
+echo "API_IMAGE=myregistry/api" > .env
+echo "API_TAG=dev" >> .env
+.\launch.ps1 -p api-backend
+```
+
+### Exemple 4 : Développement avec hot-reload
+
+Monter un volume local pour le développement :
+
+```yaml
+# profiles/mon-service.yml
+docker-compose:
+  image: node:20-alpine
+  volumes:
+    - ./src:/app  # Code local monté dans le conteneur
+    - /app/node_modules  # node_modules reste dans le conteneur
+  environment:
+    - NODE_ENV=development
+  command: npm run dev
+```
+
+### Exemple 5 : Service avec dépendances
+
+Service nécessitant une base de données :
+
+```yaml
+# profiles/api-with-db.yml
+docker-compose:
+  image: myapi:latest
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment:
+    - DATABASE_URL=postgresql://user:${DB_PASSWORD}@postgres:5432/mydb
+
+# Ajouter aussi postgres dans profiles/postgres.yml
 ```
 
 ## ☁️ AWS et Docker Registry

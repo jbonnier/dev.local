@@ -1,5 +1,21 @@
 # 🚀 Guide de Démarrage Rapide - Dev.Local 2.0
 
+> **Guide pas-à-pas** pour démarrer avec Dev.Local en moins de 10 minutes !
+
+## 📑 Table des matières
+
+1. [Prérequis](#prérequis)
+2. [Installation rapide](#installation-rapide)
+3. [Configuration SOPS](#1-configuration-sops)
+4. [Initialiser les secrets](#2-initialiser-les-secrets)
+5. [Ajouter votre premier service](#3-ajouter-votre-premier-service)
+6. [Démarrer les services](#4-démarrer-les-services)
+7. [Variables partagées](#5-variables-partagées-optionnel)
+8. [Commandes essentielles](#-commandes-essentielles)
+9. [Exemple complet](#-exemple-complet)
+10. [Dépannage](#-dépannage)
+11. [Prochaines étapes](#-prochaines-étapes)
+
 ## Prérequis
 
 1. ✅ Docker & Docker Compose v2+ installés
@@ -81,7 +97,54 @@ Supprimer le préfixe: o
 
 # OU via le menu
 .\menu.ps1
+
+# OU avec Just (si installé)
+just start
 ```
+
+### 5. Variables partagées (Optionnel)
+
+Les variables partagées permettent de centraliser des configurations communes (URLs d'APIs, log level, etc.).
+
+```powershell
+# Éditer config.yml
+notepad config.yml
+```
+
+Ajouter vos variables communes :
+
+```yaml
+# config.yml
+shared_env:
+  global:
+    - LOG_LEVEL=info
+    - NODE_ENV=development
+    - TZ=America/Toronto
+  
+  external_services:
+    - API_GATEWAY_URL=https://api.example.com
+    - AUTH_SERVICE_URL=https://auth.example.com
+
+shared_env_config:
+  enabled: true
+  auto_inject:
+    - global
+    - external_services
+```
+
+Puis régénérer :
+
+```powershell
+.\manage-profiles.ps1 -Action generate
+.\launch.ps1 -c recreate
+```
+
+**Avantages :**
+- ✅ Centralisez les URLs communes
+- ✅ Évitez la duplication
+- ✅ Changez une variable partout d'un coup
+
+📚 **Documentation complète :** [docs/shared-env-guide.md](docs/shared-env-guide.md)
 
 ## 🎯 Commandes essentielles
 
@@ -208,10 +271,94 @@ $env:MON_SECRET
 
 ## 📚 Prochaines étapes
 
-1. Lire le [README.md](README.md) complet
-2. Personnaliser les profils dans `profiles/`
-3. Configurer Traefik dans `traefik/traefik.yml`
-4. Ajouter vos propres services
+### Documentation approfondie
+
+1. **README principal** - [README.md](README.md)
+   - Toutes les fonctionnalités détaillées
+   - Guide complet des commandes
+   - Configuration avancée
+
+2. **Variables partagées** - [docs/shared-env-guide.md](docs/shared-env-guide.md)
+   - Guide complet avec exemples
+   - Cas d'usage pratiques
+   - Configuration avancée
+
+3. **Aide-mémoire** - [CHEATSHEET.md](CHEATSHEET.md)
+   - Commandes essentielles
+   - Raccourcis pratiques
+   - Dépannage rapide
+
+4. **Support Linux/macOS** - [BASH_README.md](BASH_README.md)
+   - Guide complet Bash
+   - Commandes Linux/macOS
+   - Scripts bash
+
+### Personnalisation
+
+1. **Profils personnalisés**
+   - Ajoutez vos services dans `profiles/`
+   - Utilisez `profiles/example.yml` comme template
+   - Documentation inline dans les profils
+
+2. **Configuration Traefik**
+   - Éditez `traefik/traefik.yml` pour changer les ports
+   - Activez HTTPS
+   - Configurez des middlewares
+
+3. **Variables partagées**
+   - Éditez `config.yml` pour centraliser vos URLs
+   - Créez des groupes logiques (auth, database, external)
+   - Activez/désactivez par service
+
+4. **Secrets**
+   - Ajoutez vos secrets dans `secrets.env` (chiffré)
+   - Synchronisez automatiquement avec `sync-secrets`
+   - Utilisez Age ou AWS KMS selon vos besoins
+
+### Workflows recommandés
+
+**Développement quotidien :**
+```powershell
+# Matin - Démarrer
+just start
+
+# Changer de branche/version
+$env:API_TAG="feature-xyz"
+just restart
+
+# Voir les logs
+just logs api
+
+# Soir - Arrêter
+just stop
+```
+
+**Ajouter un nouveau service :**
+```powershell
+# 1. Créer le profil
+.\manage-profiles.ps1 -Action add
+
+# 2. Ajouter les secrets
+.\launch.ps1 -c edit-secrets
+
+# 3. Regénérer et tester
+.\manage-profiles.ps1 -Action generate
+.\launch.ps1 -p nouveau-service
+```
+
+**Partager avec l'équipe :**
+```powershell
+# 1. Commiter les profils (sans secrets!)
+git add profiles/nouveau-service.yml
+git commit -m "Add nouveau-service profile"
+
+# 2. Documenter les secrets requis
+# Les secrets sont déjà documentés dans le profil
+
+# 3. Partager les instructions
+# L'équipe peut initialiser avec:
+# .\launch.ps1 -c edit-secrets
+```
 
 ## 💡 Astuces
 
