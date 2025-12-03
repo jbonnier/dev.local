@@ -759,4 +759,6 @@ sops -d secrets.env
 
 ## 📄 Licence
 
-À définir selon votre projet.
+Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
+
+Copyright (c) 2025 Dev.Local Contributors
