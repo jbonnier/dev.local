@@ -189,9 +189,37 @@ sops secrets.env
 
 ## 🔧 Dépannage Express
 
-### Erreur : "command not found"
+### Erreur : "command not found" ou "Permission denied"
 ```bash
+# Linux/macOS : Ajouter permissions exécutables
 chmod +x *.sh
+
+# Windows : Vérifier et corriger automatiquement
+.\fix-sh-permissions.ps1
+```
+
+### Vérifier les permissions des fichiers .sh
+```bash
+# Voir les permissions Git
+git ls-files -s *.sh
+# 100755 = exécutable ✅
+# 100644 = non exécutable ❌
+
+# Corriger manuellement
+git update-index --chmod=+x fichier.sh
+```
+
+### Erreur : "bad interpreter: /bin/bash^M"
+```bash
+# Problème : Fichier utilise CRLF au lieu de LF
+# Solution 1 : Utiliser dos2unix
+dos2unix launch.sh
+
+# Solution 2 : Avec sed
+sed -i 's/\r$//' launch.sh
+
+# Prévention : .gitattributes est configuré pour forcer LF
+git check-attr -a launch.sh
 ```
 
 ### Erreur : "SOPS n'est pas installé"

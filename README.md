@@ -698,7 +698,6 @@ chmod +x *.sh
 - [QUICKSTART.md](QUICKSTART.md) - Démarrage rapide (Windows + Linux)
 - [BASH_README.md](BASH_README.md) - Guide utilisateur Linux/macOS
 - [CHEATSHEET.md](CHEATSHEET.md) - Aide-mémoire des commandes essentielles
-- [FILE_INDEX.md](FILE_INDEX.md) - Index complet de tous les fichiers
 
 ## 🔒 Sécurité
 
@@ -755,6 +754,47 @@ docker compose logs -f
 
 # Tester SOPS
 sops -d secrets.env
+```
+
+## 🔧 Développeurs Windows : Permissions des fichiers .sh
+
+Si vous travaillez sur Windows et contribuez au projet, assurez-vous que les fichiers `.sh` ont le bit exécutable pour les utilisateurs Linux/macOS.
+
+### Vérification automatique
+
+Utilisez le script fourni pour vérifier et corriger les permissions :
+
+```powershell
+.\fix-sh-permissions.ps1
+```
+
+Ce script :
+- ✅ Vérifie tous les fichiers `.sh` du projet
+- ✅ Affiche leur statut (exécutable ou non)
+- ✅ Corrige automatiquement les permissions si nécessaire
+
+### Correction manuelle
+
+```powershell
+# Rendre un fichier .sh exécutable
+git update-index --chmod=+x fichier.sh
+
+# Vérifier les permissions
+git ls-files -s *.sh
+# 100755 = exécutable ✅
+# 100644 = non exécutable ❌
+```
+
+### Automatisation avec .gitattributes
+
+Le fichier `.gitattributes` est déjà configuré pour :
+- Assurer que les `.sh` utilisent LF (fins de ligne Unix)
+- Normaliser les fins de ligne selon le type de fichier
+
+**Important :** Après modification des permissions, committez les changements :
+```powershell
+git add <fichiers>
+git commit -m "Fix: Ajouter bit exécutable aux scripts .sh"
 ```
 
 ## 📄 Licence

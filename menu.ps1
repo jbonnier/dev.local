@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Menu interactif pour Dev.Local 2.0
 

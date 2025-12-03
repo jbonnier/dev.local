@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Script principal de gestion des services Dev.Local 2.0
 

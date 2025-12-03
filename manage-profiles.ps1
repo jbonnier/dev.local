@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Gestionnaire de profils pour Dev.Local 2.0
 

@@ -1,0 +1,16 @@
+# Assurer que les fichiers shell ont le bit exécutable
+*.sh text eol=lf
+
+# Normaliser les fins de ligne
+*.ps1 text eol=crlf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+
+# Fichiers binaires
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+
