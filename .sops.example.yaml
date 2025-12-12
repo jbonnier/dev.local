@@ -4,6 +4,8 @@
 creation_rules:
   # Règle pour secrets.env
   - path_regex: secrets\.env$
+    # CONFIGURATION TEMPORAIRE - À REMPLACER
+    # Décommentez l'une des options ci-dessus
     # Option 1 : AWS KMS (décommenter et configurer)
     # kms: 'arn:aws:kms:ca-central-1:ACCOUNT_ID:key/KEY_ID'
     
@@ -14,6 +16,4 @@ creation_rules:
     # Générer une clé Age : age-keygen -o age-key.txt
     # Puis utiliser la clé publique ci-dessus
     
-    # CONFIGURATION TEMPORAIRE - À REMPLACER
-    # Décommentez l'une des options ci-dessus
-    encrypted_regex: '^(.*_PASSWORD|.*_SECRET|.*_KEY|.*_TOKEN|API_.*)$'
+    encrypted_regex: '^.*$'

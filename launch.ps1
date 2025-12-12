@@ -58,6 +58,27 @@ function Validate-Sops {
     return $true
 }
 
+# Valider la configuration SOPS (.sops.local.yaml)
+function Validate-SopsConfig {
+    if (-not (Test-Path ".sops.local.yaml")) {
+        Write-Error ".sops.local.yaml non trouvé"
+        return $false
+    }
+    
+    # Vérifier si une méthode de chiffrement est active (non commentée)
+    # Note: On lit le contenu comme texte pour chercher les commentaires
+    $content = Get-Content ".sops.local.yaml" -Raw
+    
+    # Regex pour chercher kms: ou age: au début de la ligne ou après des espaces/tirets, mais pas après un #
+    if ($content -notmatch "(?m)^\s*(- )?(kms|age|pgp|gcp_kms|azure_kv|hc_vault):") {
+        Write-Error "Aucune méthode de chiffrement configurée dans .sops.local.yaml"
+        Write-Warning "Veuillez éditer .sops.local.yaml pour décommenter et configurer 'kms' ou 'age'"
+        return $false
+    }
+    
+    return $true
+}
+
 # Charger et déchiffrer les secrets
 function Load-Secrets {
     if (-not (Test-Path "secrets.env")) {
@@ -66,6 +87,11 @@ function Load-Secrets {
     }
     
     if (-not (Validate-Sops)) {
+        return
+    }
+    
+    if (-not (Validate-SopsConfig)) {
+        Write-Warning "Configuration SOPS invalide. Les secrets ne seront pas chargés."
         return
     }
     
@@ -101,6 +127,10 @@ function Edit-Secrets {
         return
     }
     
+    if (-not (Validate-SopsConfig)) {
+        return
+    }
+    
     if (-not (Test-Path "secrets.env")) {
         Write-Host "Création de secrets.env..." -ForegroundColor Yellow
         & .\manage-profiles.ps1 -Action init-secrets
@@ -115,6 +145,10 @@ function Edit-Secrets {
 function View-Secrets {
     if (-not (Validate-Sops)) {
         Write-Error "SOPS requis"
+        return
+    }
+    
+    if (-not (Validate-SopsConfig)) {
         return
     }
     

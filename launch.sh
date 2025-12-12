@@ -55,6 +55,23 @@ validate_sops() {
     return 0
 }
 
+# Valider la configuration SOPS (.sops.local.yaml)
+validate_sops_config() {
+    if [ ! -f ".sops.yaml" ]; then
+        echo -e "\033[91mErreur: .sops.yaml non trouvé\033[0m"
+        return 1
+    fi
+    
+    # Vérifier si une méthode de chiffrement est active (non commentée)
+    # On cherche des lignes qui ne commencent pas par # et qui contiennent une clé de chiffrement valide
+    if ! grep -qE "^\s*(- )?(kms|age|pgp|gcp_kms|azure_kv|hc_vault):" .sops.local.yaml; then
+        echo -e "\033[91mErreur: Aucune méthode de chiffrement configurée dans .sops.yaml\033[0m"
+        echo -e "\033[93mVeuillez éditer .sops.yaml pour décommenter et configurer 'kms' ou 'age'\033[0m"
+        return 1
+    fi
+    return 0
+}
+
 # Charger et déchiffrer les secrets
 load_secrets() {
     if [ ! -f "secrets.env" ]; then
@@ -63,6 +80,11 @@ load_secrets() {
     fi
     
     if ! validate_sops; then
+        return
+    fi
+
+    if ! validate_sops_config; then
+        echo -e "\033[93mAvertissement: Configuration SOPS invalide. Les secrets ne seront pas chargés.\033[0m"
         return
     fi
     
@@ -97,6 +119,10 @@ edit_secrets() {
         echo -e "\033[91mSOPS requis pour éditer les secrets\033[0m"
         return 1
     fi
+
+    if ! validate_sops_config; then
+        return 1
+    fi
     
     if [ ! -f "secrets.env" ]; then
         echo -e "\033[93mCréation de secrets.env...\033[0m"
@@ -112,6 +138,10 @@ edit_secrets() {
 view_secrets() {
     if ! validate_sops; then
         echo -e "\033[91mSOPS requis\033[0m"
+        return 1
+    fi
+
+    if ! validate_sops_config; then
         return 1
     fi
     

@@ -669,11 +669,12 @@ function Sync-Secrets {
                 $env = $data.'docker-compose'.environment
                 # environment peut être une liste ou un hashtable (si converti de object)
                 # YAML environment est souvent une liste de strings "KEY=VALUE"
+                # environment peut être une liste ou un hashtable
+                # S'il contient des strings simples "KEY=VALUE", on cherche le pattern
                 foreach ($envLine in $env) {
-                    if ($envLine -match '\$\{([A-Z_][A-Z0-9_]*):?-([^}]*)\}') {
+                    if ($envLine -match '\$\{([A-Z_][A-Z0-9_]*)(:-([^}]*))?\}') {
                         $varName = $matches[1]
-                        $defaultValue = $matches[2]
-                        if ($defaultValue -eq '') { $defaultValue = 'changeme' }
+                        $defaultValue = if ($matches[3]) { $matches[3] } else { 'changeme' }
                         
                         if (-not $secretVars.ContainsKey($varName)) {
                             $secretVars[$varName] = $defaultValue
@@ -763,10 +764,40 @@ function Sync-Secrets {
     $newContent | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
     
     # Chiffrer avec SOPS
+    # Note: On passe --filename-override secrets.env pour que SOPS applique les règles de .sops.local.yaml
+    Write-Host "Chiffrement du fichier temporaire..." -ForegroundColor Cyan
     try {
-        sops -e $tempFile | Out-File -FilePath $SecretsFile -Encoding UTF8
-        Remove-Item $tempFile -Force
-        Write-Host "`n  ✅ secrets.env mis à jour et rechiffré ($($newVars.Count) variable(s) ajoutée(s))" -ForegroundColor Green
+        # PowerShell redirection handling for external commands can be tricky with binary data
+        # Best way is to let sops handle file output if possible, but sops outputs to stdout by default for encryption
+        
+        $sopsArgs = @("-e", "--filename-override", $SecretsFile, $tempFile)
+        
+        # Capture stdout (encrypted content) and stderr
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = "sops"
+        $pinfo.Arguments = $sopsArgs -join " "
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.RedirectStandardError = $true
+        $pinfo.UseShellExecute = $false
+        $pinfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        
+        $p = New-Object System.Diagnostics.Process
+        $p.StartInfo = $pinfo
+        $p.Start() | Out-Null
+        
+        $stdout = $p.StandardOutput.ReadToEnd()
+        $stderr = $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        
+        if ($p.ExitCode -eq 0) {
+            $stdout | Out-File -FilePath $SecretsFile -Encoding UTF8 -NoNewline
+            Remove-Item $tempFile -Force
+            Write-Host "`n  ✅ secrets.env mis à jour et rechiffré ($($newVars.Count) variable(s) ajoutée(s))" -ForegroundColor Green
+        }
+        else {
+            Write-Error "Erreur SOPS (Exit code $($p.ExitCode)): $stderr"
+            if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
+        }
     }
     catch {
         Write-Error "Erreur lors du chiffrement: $_"

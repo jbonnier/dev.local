@@ -277,8 +277,8 @@ https://docs.docker.com/compose/install/
 
 ### Erreur SOPS : "no key found"
 ```bash
-# Configurer .sops.yaml
-vi .sops.yaml
+# Configurer .sops.local.yaml
+vi .sops.local.yaml
 
 # Pour Age
 creation_rules:
@@ -318,8 +318,8 @@ age-keygen -o ~/.config/sops/age/keys.txt
 # 2. Copier la clé publique
 cat ~/.config/sops/age/keys.txt | grep "public key"
 
-# 3. Configurer .sops.yaml
-cat > .sops.yaml << EOF
+# 3. Configurer .sops.local.yaml
+cat > .sops.local.yaml << EOF
 creation_rules:
   - age: 'age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p'
 EOF
@@ -332,8 +332,8 @@ EOF
 # Region: ca-central-1
 # Alias: dev-local-sops
 
-# 2. Configurer .sops.yaml
-cat > .sops.yaml << EOF
+# 2. Configurer .sops.local.yaml
+cat > .sops.local.yaml << EOF
 creation_rules:
   - kms: 'arn:aws:kms:ca-central-1:237029655182:key/your-key-id'
     aws_profile: ESG-DV-PowerUser-SSO

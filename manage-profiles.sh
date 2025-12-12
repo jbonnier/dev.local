@@ -834,11 +834,14 @@ sync_secrets() {
     echo -n "$new_content" > "$temp_file"
     
     # Chiffrer avec SOPS
-    if sops -e "$temp_file" > "$SECRETS_FILE" 2>/dev/null; then
+    # Note: On passe --filename-override secrets.env pour que SOPS applique les règles de .sops.yaml
+    if output=$(sops -e --filename-override "$SECRETS_FILE" "$temp_file" 2>&1); then
+        echo "$output" > "$SECRETS_FILE"
         rm -f "$temp_file"
         echo -e "\n  \033[92m✅ secrets.env mis à jour et rechiffré (${#new_vars[@]} variable(s) ajoutée(s))\033[0m"
     else
         echo -e "\033[91mErreur lors du chiffrement\033[0m"
+        echo "$output"
         rm -f "$temp_file"
         return 1
     fi
