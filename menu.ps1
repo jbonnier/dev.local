@@ -9,6 +9,13 @@
     .\menu.ps1
 #>
 
+# Check for powershell-yaml module
+if (-not (Get-Module -ListAvailable powershell-yaml)) {
+    Write-Warning "Le module 'powershell-yaml' est requis. Installation..."
+    Install-Module powershell-yaml -Scope CurrentUser -Force -AllowClobber
+}
+Import-Module powershell-yaml
+
 $PSDefaultParameterValues['*:Encoding'] = 'UTF8'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -28,10 +35,11 @@ function Show-Menu {
 ┌─────────────────────────────────────────────────────────────┐
 │ 📦 SERVICES DOCKER                                          │
 └─────────────────────────────────────────────────────────────┘
-  1. ▶️  Démarrer tous les services
+  1. ▶️ Démarrer tous les services
+  m. 🚀 Démarrer services minimums (sans profils)
   2. 🎯 Démarrer avec profils spécifiques
   3. 🔄 Recréer les services (down + up)
-  4. ⏹️  Arrêter tous les services
+  4. ⏹️ Arrêter tous les services
   5. 📋 Lister les containers actifs
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -82,13 +90,18 @@ function Show-Profiles {
         return
     }
     
-    foreach ($profile in $profiles) {
-        $content = Get-Content $profile.FullName -Raw
-        $name = if ($content -match 'name:\s*(.+)') { $matches[1].Trim() } else { $profile.BaseName }
-        $enabled = if ($content -match 'enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
-        $status = if ($enabled) { "✅" } else { "❌" }
-        
-        Write-Host "  $status $name" -ForegroundColor Cyan
+    foreach ($profileFile in $profiles) {
+        try {
+            $data = Get-Content $profileFile.FullName -Raw | ConvertFrom-Yaml
+            $name = if ($data.name) { $data.name } else { $profileFile.BaseName }
+            $enabled = if ($null -ne $data.enabled) { $data.enabled } else { $true }
+            
+            $status = if ($enabled) { "✅" } else { "❌" }
+            Write-Host "  $status $name" -ForegroundColor Cyan
+        }
+        catch {
+            Write-Host "  ⚠️ Erreur lecture $($profileFile.Name)" -ForegroundColor Red
+        }
     }
     
     Write-Host "`nExemples de profils multiples:"
@@ -97,7 +110,7 @@ function Show-Profiles {
     
     $selectedProfiles = Read-Host "Entrez les profils (séparés par virgules)"
     if ($selectedProfiles) {
-        Write-Host "▶️  Démarrage avec profils: $selectedProfiles" -ForegroundColor Cyan
+        Write-Host "▶️ Démarrage avec profils: $selectedProfiles" -ForegroundColor Cyan
         Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
         Write-Host ".\launch.ps1 -p $selectedProfiles" -ForegroundColor Yellow
         & .\launch.ps1 -p $selectedProfiles
@@ -112,6 +125,51 @@ function Main {
         switch ($choice) {
             "1" {
                 Write-Host "▶️  Démarrage de tous les services..." -ForegroundColor Cyan
+                
+                # Récupérer tous les profils actifs nécessaires
+                $activeProfiles = @()
+                $profileFiles = Get-ChildItem -Path "profiles" -Filter "*.yml" -ErrorAction SilentlyContinue
+                
+                foreach ($file in $profileFiles) {
+                    try {
+                        $data = Get-Content $file.FullName -Raw | ConvertFrom-Yaml
+                        
+                        $enabled = if ($null -ne $data.enabled) { $data.enabled } else { $true }
+                        if (-not $enabled) { continue }
+                        
+                        $alwaysActive = if ($null -ne $data.always_active) { $data.always_active } else { $true }
+                        
+                        if (-not $alwaysActive) {
+                            $prof = $data.docker_profile
+                            if ($prof -and $prof -ne "null") {
+                                $activeProfiles += $prof
+                            }
+                        }
+                    }
+                    catch {
+                        # Ignorer les erreurs de parsing pour ne pas bloquer
+                        Write-Warning "Erreur lecture $($file.Name)"
+                    }
+                }
+                
+                $uniqueProfiles = $activeProfiles | Select-Object -Unique | Sort-Object
+                $profileArg = $uniqueProfiles -join ","
+                
+                if ($profileArg) {
+                    Write-Host "Profils inclus: $profileArg" -ForegroundColor DarkGray
+                    Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host ".\launch.ps1 -p $profileArg" -ForegroundColor Yellow
+                    & .\launch.ps1 -p $profileArg
+                }
+                else {
+                    Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host ".\launch.ps1" -ForegroundColor Yellow
+                    & .\launch.ps1
+                }
+                Wait-AnyKey
+            }
+            "m" {
+                Write-Host "▶️  Démarrage des services minimums (sans profils)..." -ForegroundColor Cyan
                 Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
                 Write-Host ".\launch.ps1" -ForegroundColor Yellow
                 & .\launch.ps1
@@ -217,10 +275,12 @@ function Main {
                 if (Test-Path README.md) {
                     if (Get-Command code -ErrorAction SilentlyContinue) {
                         & code README.md
-                    } else {
+                    }
+                    else {
                         & notepad README.md
                     }
-                } else {
+                }
+                else {
                     Write-Warning "README.md non trouvé"
                 }
             }

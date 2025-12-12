@@ -28,7 +28,7 @@ param(
     [string]$p,
     [Parameter(Position = 0)]
     [ValidateSet('start', 'stop', 'recreate', 'ps', 'logs', 'sso', 'id', 'ecr-login', 'jfrog-login', 'edit-secrets', 'view-secrets')]
-    [string]$c='start',
+    [string]$c = 'start',
     [string]$service
 )
 
@@ -142,7 +142,8 @@ function Start-Services {
     if ($profiles) {
         $env:COMPOSE_PROFILES = $profiles
         Write-Host "🚀 Démarrage des profils: $profiles" -ForegroundColor Cyan
-    } else {
+    }
+    else {
         if (Test-Path env:COMPOSE_PROFILES) {
             Remove-Item env:COMPOSE_PROFILES
         }
@@ -154,14 +155,14 @@ function Start-Services {
 
 # Arrêter les services
 function Stop-Services {
-    Write-Host "⏹️  Arrêt des services" -ForegroundColor Yellow
-    docker compose down
+    Write-Host "⏹️ Arrêt des services" -ForegroundColor Yellow
+    docker compose --profile "*" down
 }
 
 # Recréer les services
 function Recreate-Services {
     Write-Host "🔄 Recréation des services" -ForegroundColor Yellow
-    docker compose down
+    docker compose --profile "*" down
     Start-Services
 }
 
@@ -181,7 +182,8 @@ function Show-Logs {
     if ($service) {
         Write-Host "📋 Logs du service: $service" -ForegroundColor Cyan
         docker compose logs -f $service
-    } else {
+    }
+    else {
         Write-Host "📋 Logs de tous les services" -ForegroundColor Cyan
         docker compose logs -f
     }

@@ -155,14 +155,14 @@ start_services() {
 
 # Arrêter les services
 stop_services() {
-    echo -e "\033[93m⏹️  Arrêt des services\033[0m"
-    docker compose down
+    echo -e "\033[93m⏹️ Arrêt des services\033[0m"
+    docker compose --profile "*" down
 }
 
 # Recréer les services
 recreate_services() {
     echo -e "\033[93m🔄 Recréation des services\033[0m"
-    docker compose down
+    docker compose --profile "*" down
     start_services
 }
 
