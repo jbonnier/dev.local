@@ -141,6 +141,7 @@ EOF
         done
         
         if [ -n "$selected_profiles" ]; then
+            LAST_PROFILES="$selected_profiles"
             echo -e "\033[96m▶️  Démarrage avec profils: $selected_profiles\033[0m"
             echo -e "\033[90mCommande: docker compose --profile $(echo $selected_profiles | sed 's/,/ --profile /g') up -d\033[0m"
             ./launch.sh --profile "$selected_profiles" up
@@ -148,6 +149,9 @@ EOF
         fi
     fi
 }
+
+# Variable globale pour stocker les derniers profils utilisés
+LAST_PROFILES=""
 
 # Boucle principale
 while true; do
@@ -188,9 +192,11 @@ while true; do
                 unique_profiles=$(echo "$profiles_list" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
                 echo -e "\033[90mProfils inclus: $unique_profiles\033[0m"
                 echo -e "\033[90mCommande: docker compose --profile $(echo $unique_profiles | sed 's/,/ --profile /g') up -d\033[0m"
+                LAST_PROFILES="$unique_profiles"
                 ./launch.sh --profile "$unique_profiles" up
             else
                 echo -e "\033[90mCommande: docker compose up -d\033[0m"
+                LAST_PROFILES=""
                 ./launch.sh up
             fi
             
@@ -207,8 +213,19 @@ while true; do
             ;;
         3)
             echo -e "\033[93m🔄 Recréation des services...\033[0m"
-            echo -e "\033[90mCommande: docker compose down && docker compose up -d\033[0m"
-            ./launch.sh down && ./launch.sh up
+            
+            if [ -n "$LAST_PROFILES" ]; then
+                echo -e "\033[90mUtilisation des derniers profils : $LAST_PROFILES\033[0m"
+                echo -e "\033[90mCommande: docker compose --profile $(echo $LAST_PROFILES | sed 's/,/ --profile /g') down && docker compose --profile ... up -d\033[0m"
+                # On utilise la commande recreate du script launch.sh qui supporte maintenant la persistance des profils
+                # Il suffit de passer les profils à la commande, ou de laisser le script gérer si on l'appelle correctement
+                
+                # Méthode 1: Appel direct avec profils
+                ./launch.sh --profile "$LAST_PROFILES" recreate
+            else
+                echo -e "\033[90mCommande: docker compose down && docker compose up -d\033[0m"
+                ./launch.sh recreate
+            fi
             wait_key
             ;;
         4)

@@ -24,6 +24,9 @@ function Wait-AnyKey {
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
 
+# Variable globale pour stocker les derniers profils utilisés
+$script:LastProfiles = $null
+
 function Show-Menu {
     Clear-Host
     Write-Host @"
@@ -137,14 +140,14 @@ function Show-Profiles {
             }
         }
         
-        if ($selectedProfiles.Count -gt 0) {
-            $finalProfiles = $selectedProfiles -join ","
-            Write-Host "▶️ Démarrage avec profils: $finalProfiles" -ForegroundColor Cyan
-            Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
-            Write-Host ".\launch.ps1 -p $finalProfiles" -ForegroundColor Yellow
-            & .\launch.ps1 -p $finalProfiles
-        }
+        $finalProfiles = $selectedProfiles -join ","
+        $script:LastProfiles = $finalProfiles
+        Write-Host "▶️ Démarrage avec profils: $finalProfiles" -ForegroundColor Cyan
+        Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
+        Write-Host ".\launch.ps1 -p $finalProfiles" -ForegroundColor Yellow
+        & .\launch.ps1 -p $finalProfiles
     }
+}
 }
 
 function Main {
@@ -186,12 +189,14 @@ function Main {
                 $profileArg = $uniqueProfiles -join ","
                 
                 if ($profileArg) {
+                    $script:LastProfiles = $profileArg
                     Write-Host "Profils inclus: $profileArg" -ForegroundColor DarkGray
                     Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
                     Write-Host ".\launch.ps1 -p $profileArg" -ForegroundColor Yellow
                     & .\launch.ps1 -p $profileArg
                 }
                 else {
+                    $script:LastProfiles = $null
                     Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
                     Write-Host ".\launch.ps1" -ForegroundColor Yellow
                     & .\launch.ps1
@@ -211,9 +216,18 @@ function Main {
             }
             "3" {
                 Write-Host "🔄 Recréation des services..." -ForegroundColor Yellow
-                Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
-                Write-Host ".\launch.ps1 -c recreate" -ForegroundColor Yellow
-                & .\launch.ps1 -c recreate
+                
+                if ($script:LastProfiles) {
+                    Write-Host "Utilisation des derniers profils : $script:LastProfiles" -ForegroundColor DarkGray
+                    Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host ".\launch.ps1 -c recreate -p $script:LastProfiles" -ForegroundColor Yellow
+                    & .\launch.ps1 -c recreate -p $script:LastProfiles
+                }
+                else {
+                    Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
+                    Write-Host ".\launch.ps1 -c recreate" -ForegroundColor Yellow
+                    & .\launch.ps1 -c recreate
+                }
                 Wait-AnyKey
             }
             "4" {
