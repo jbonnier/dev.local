@@ -148,7 +148,6 @@ function Show-Profiles {
         & .\launch.ps1 -p $finalProfiles
     }
 }
-}
 
 function Main {
     do {
