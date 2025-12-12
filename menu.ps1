@@ -90,30 +90,60 @@ function Show-Profiles {
         return
     }
     
+    $profileMap = @{}
+    $i = 1
+    
     foreach ($profileFile in $profiles) {
         try {
             $data = Get-Content $profileFile.FullName -Raw | ConvertFrom-Yaml
             $name = if ($data.name) { $data.name } else { $profileFile.BaseName }
+            $dockerProfile = if ($data.docker_profile) { $data.docker_profile } else { $name }
             $enabled = if ($null -ne $data.enabled) { $data.enabled } else { $true }
             
-            $status = if ($enabled) { "✅" } else { "❌" }
-            Write-Host "  $status $name" -ForegroundColor Cyan
+            if ($enabled) {
+                Write-Host "  [$i] ✅ $name" -ForegroundColor Cyan
+                $profileMap[$i] = $dockerProfile
+                $i++
+            }
+            else {
+                Write-Host "  [-] ❌ $name (Désactivé)" -ForegroundColor DarkGray
+            }
         }
         catch {
             Write-Host "  ⚠️ Erreur lecture $($profileFile.Name)" -ForegroundColor Red
         }
     }
     
-    Write-Host "`nExemples de profils multiples:"
-    Write-Host "  api,frontend"
-    Write-Host "  service1,service2,service3`n"
+    Write-Host "`nExemples:"
+    Write-Host "  1,2         (par numéros)"
+    Write-Host "  api,web     (par noms)`n"
     
-    $selectedProfiles = Read-Host "Entrez les profils (séparés par virgules)"
-    if ($selectedProfiles) {
-        Write-Host "▶️ Démarrage avec profils: $selectedProfiles" -ForegroundColor Cyan
-        Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
-        Write-Host ".\launch.ps1 -p $selectedProfiles" -ForegroundColor Yellow
-        & .\launch.ps1 -p $selectedProfiles
+    $userInput = Read-Host "Entrez les profils (noms ou numéros, séparés par virgules)"
+    
+    if ($userInput) {
+        $selectedProfiles = @()
+        $parts = $userInput -split ","
+        
+        foreach ($part in $parts) {
+            $val = $part.Trim()
+            if ($val -match '^\d+$') {
+                $idx = [int]$val
+                if ($profileMap.ContainsKey($idx)) {
+                    $selectedProfiles += $profileMap[$idx]
+                }
+            }
+            else {
+                $selectedProfiles += $val
+            }
+        }
+        
+        if ($selectedProfiles.Count -gt 0) {
+            $finalProfiles = $selectedProfiles -join ","
+            Write-Host "▶️ Démarrage avec profils: $finalProfiles" -ForegroundColor Cyan
+            Write-Host "Commande: " -NoNewline -ForegroundColor DarkGray
+            Write-Host ".\launch.ps1 -p $finalProfiles" -ForegroundColor Yellow
+            & .\launch.ps1 -p $finalProfiles
+        }
     }
 }
 

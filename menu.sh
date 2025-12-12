@@ -80,32 +80,72 @@ EOF
         return
     fi
     
+    # Init arrays
+    names=()
+    docker_profiles=()
+    i=1
+    
     for profile in profiles/*.yml; do
         [ -f "$profile" ] || continue
         
-        name=$(yq -r '.name // filename' "$profile")
-        if [ "$name" = "filename" ]; then name=$(basename "$profile" .yml); fi
+        # Use simpler yq extraction to avoid jq errors with undefined variables
+        name=$(yq -r '.name' "$profile")
+        if [ "$name" = "null" ] || [ -z "$name" ]; then 
+            name=$(basename "$profile" .yml)
+        fi
         
         enabled=$(yq -r '.enabled' "$profile")
         
+        docker_profile=$(yq -r '.docker_profile' "$profile")
+        if [ "$docker_profile" = "null" ] || [ -z "$docker_profile" ]; then 
+            docker_profile="$name"
+        fi
+        
         if [ "$enabled" != "false" ]; then
-            echo -e "  \033[92m✅ $name\033[0m"
+            echo -e "  \033[96m[$i]\033[0m \033[92m✅ $name\033[0m"
+            names[i]="$name"
+            docker_profiles[i]="$docker_profile"
+            ((i++))
         else
-            echo -e "  \033[91m❌ $name\033[0m"
+            echo -e "  \033[90m[-] ❌ $name (Désactivé)\033[0m"
         fi
     done
     
-    echo -e "\nExemples de profils multiples:"
-    echo "  andoc,recpro"
-    echo "  service1,service2,service3"
+    echo -e "\nExemples:"
+    echo "  1,2         (par numéros)"
+    echo "  api,web     (par noms)"
     echo ""
     
-    read -p "Entrez les profils (séparés par virgules): " selected_profiles
-    if [ -n "$selected_profiles" ]; then
-        echo -e "\033[96m▶️  Démarrage avec profils: $selected_profiles\033[0m"
-        echo -e "\033[90mCommande: docker compose --profile $(echo $selected_profiles | sed 's/,/ --profile /g') up -d\033[0m"
-        ./launch.sh --profile "$selected_profiles" up
-        wait_key
+    read -p "Entrez les profils (noms ou numéros, séparés par virgules): " input
+    if [ -n "$input" ]; then
+        selected_profiles=""
+        IFS=',' read -ra ADDR <<< "$input"
+        for val in "${ADDR[@]}"; do
+            val=$(echo "$val" | tr -d '[:space:]')
+            # Check if number
+            if [[ "$val" =~ ^[0-9]+$ ]]; then
+                if [ -n "${docker_profiles[$val]}" ]; then
+                    if [ -z "$selected_profiles" ]; then
+                        selected_profiles="${docker_profiles[$val]}"
+                    else
+                        selected_profiles="$selected_profiles,${docker_profiles[$val]}"
+                    fi
+                fi
+            else
+                if [ -z "$selected_profiles" ]; then
+                    selected_profiles="$val"
+                else
+                    selected_profiles="$selected_profiles,$val"
+                fi
+            fi
+        done
+        
+        if [ -n "$selected_profiles" ]; then
+            echo -e "\033[96m▶️  Démarrage avec profils: $selected_profiles\033[0m"
+            echo -e "\033[90mCommande: docker compose --profile $(echo $selected_profiles | sed 's/,/ --profile /g') up -d\033[0m"
+            ./launch.sh --profile "$selected_profiles" up
+            wait_key
+        fi
     fi
 }
 
