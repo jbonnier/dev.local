@@ -197,7 +197,7 @@ function Stop-Services {
 function Recreate-Services {
     Write-Host "🔄 Recréation des services" -ForegroundColor Yellow
     docker compose --profile "*" down
-    Start-Services
+    Start-Services -profiles $p
 }
 
 # Lister les containers

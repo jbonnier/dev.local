@@ -193,6 +193,9 @@ stop_services() {
 recreate_services() {
     echo -e "\033[93m🔄 Recréation des services\033[0m"
     docker compose --profile "*" down
+    if [ -n "$PROFILES" ]; then
+        export COMPOSE_PROFILES="$PROFILES"
+    fi
     start_services
 }
 
