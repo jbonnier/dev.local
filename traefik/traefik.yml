@@ -14,5 +14,7 @@ entryPoints:
   web:
     address: ":80"
 
+ping: {}
+
 log:
   level: INFO

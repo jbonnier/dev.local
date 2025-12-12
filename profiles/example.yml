@@ -94,8 +94,11 @@ traefik:
   # Supprimer le préfixe avant de transmettre au service
   strip_prefix: true
   
-  # Port du service à exposer via Traefik
-  port: 80
+  # Port du service docker à exposer via Traefik
+  docker_port: 80
+
+  # Port du service local à exposer via Traefik
+  local_port: 8090
   
   # Priorité de la route (optionnel, défaut: 10)
   priority: 10

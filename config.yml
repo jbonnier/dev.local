@@ -1,5 +1,6 @@
 # Configuration globale de Dev.Local 2.0
 # Ce fichier permet d'activer/désactiver des services optionnels
+namespace: devlocal
 
 # Dozzle - Monitoring des logs Docker via interface web
 dozzle_enabled: true

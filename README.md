@@ -13,10 +13,7 @@ Un système modulaire et générique pour gérer des services Docker avec profil
 - [📋 Format d'un profil](#-format-dun-profil)
 - [🔄 Variables d'environnement partagées](#-variables-denvironnement-partagées)
 - [🔐 Gestion des secrets avec SOPS](#-gestion-des-secrets-avec-sops)
-- [🔧 Configuration avancée](#-configuration-avancée)
-- [🛠️ Scripts et commandes](#️-scripts-et-commandes)
 - [📚 Exemples pratiques](#-exemples-pratiques)
-- [☁️ AWS et Docker Registry](#️-aws-et-docker-registry)
 - [🐧 Support Linux/macOS](#-support-linuxmacos)
 - [🔒 Sécurité](#-sécurité)
 - [📚 Documentation complète](#-documentation-complète)
@@ -59,6 +56,7 @@ Un système modulaire et générique pour gérer des services Docker avec profil
 - AWS CLI (pour utiliser AWS KMS avec SOPS)
 - Just command runner (recommandé pour faciliter l'utilisation)
 - Age (alternative à AWS KMS pour SOPS)
+- yq (optionnel mais recommandé) — utilitaire YAML pour parser correctement les profils lors de la génération. Le script `manage-profiles.sh` utilise `yq` quand il est disponible, sinon il retombe sur une implémentation sed/grep.
 
 ### Installation de SOPS
 
@@ -79,6 +77,23 @@ chmod +x /usr/local/bin/sops
 ```bash
 brew install sops
 ```
+
+### (Optionnel) Installation de yq (recommandé)
+
+Si vous voulez que la génération des fichiers soit la plus robuste possible (parsing YAML fiable), installez `yq` (mikefarah) :
+
+**Linux (binaire officiel) :**
+```bash
+sudo wget -q -O /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+sudo chmod +x /usr/local/bin/yq
+```
+
+**macOS (Homebrew) :**
+```bash
+brew install yq
+```
+
+Une fois `yq` installé, `manage-profiles.sh` l'utilisera automatiquement.
 
 ### Configuration initiale
 
@@ -136,6 +151,34 @@ $env:SOPS_AGE_KEY_FILE = "$(Get-Location)\age-key.txt"
 # OU utiliser Just (si installé)
 just generate
 just start
+```
+
+### Note : génération des fichiers (yq préféré, fallback présent)
+
+- Le script Bash `./manage-profiles.sh` privilégie `yq` lorsqu'il est installé pour parser correctement les fichiers YAML (profils et `config.yml`). Si `yq` n'est pas présent, un parsing basé sur sed/grep est utilisé en fallback.
+
+- Commandes pour (re)générer les fichiers :
+
+  - Sous Bash / Linux / macOS :
+  ```bash
+  ./manage-profiles.sh generate
+  ```
+
+  - Sous PowerShell / Windows :
+  ```powershell
+  .\manage-profiles.ps1 -Action generate
+  ```
+
+- Ce que le script génère maintenant :
+  - `docker-compose.yml` (généré) — contient désormais en en-tête la clé `name: <namespace>` prise depuis `config.yml` (clé `namespace`). Par défaut, si `config.yml` ne contient pas `namespace`, la valeur `devlocal` est utilisée.
+  - `traefik/dynamic.yml` (généré) — configuration dynamique des routers, services et middlewares pour Traefik.
+
+- Exemple rapide pour regénérer et vérifier :
+
+```bash
+./manage-profiles.sh generate
+sed -n '1,40p' docker-compose.yml        # vérifier l'en-tête et la clé `name:`
+sed -n '1,240p' traefik/dynamic.yml     # vérifier la config Traefik
 ```
 
 ### Vérification de l'installation
@@ -649,10 +692,14 @@ Les variables seront automatiquement chargées par Docker Compose !
 ```yaml
 # ✅ Bon : Image et tag séparés
 image: ${SERVICE_IMAGE:-registry.com/service}:${SERVICE_TAG:-v1.0.0}
+```
 
+```yaml
 # ✅ Bon : Avec registre optionnel
 image: ${SERVICE_REGISTRY:-registry.com}/${SERVICE_IMAGE:-service}:${SERVICE_TAG:-v1.0.0}
+```
 
+```yaml
 # ❌ Moins flexible : Tout dans une variable
 image: ${SERVICE_IMAGE:-registry.com/service:v1.0.0}
 ```

@@ -23,13 +23,20 @@
 #>
 
 param(
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory = $false)]
     [ValidateSet('add', 'list', 'remove', 'enable', 'disable', 'generate', 'init-secrets', 'sync-secrets')]
     [string]$Action = 'list'
 )
 
 $PSDefaultParameterValues['*:Encoding'] = 'UTF8'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# Check for powershell-yaml module
+if (-not (Get-Module -ListAvailable powershell-yaml)) {
+    Write-Warning "Le module 'powershell-yaml' est requis. Installation..."
+    Install-Module powershell-yaml -Scope CurrentUser -Force -AllowClobber
+}
+Import-Module powershell-yaml
 
 # Chemins
 $ProfilesDir = "profiles"
@@ -38,11 +45,7 @@ $TraefikDynamicFile = "traefik/dynamic.yml"
 $SecretsFile = "secrets.env"
 $ConfigFile = "config.yml"
 
-# Configuration par défaut
-$DefaultConfig = @{
-    dozzle_enabled = $true
-    dozzle_port = 9999
-}
+
 
 # Fonction pour charger les variables d'environnement partagées
 function Get-SharedEnvironmentVariables {
@@ -54,62 +57,44 @@ function Get-SharedEnvironmentVariables {
         return @()
     }
 
-    $configContent = Get-Content $ConfigFile -Raw
-
-    # Vérifier si shared_env est activé
-    $enabled = $true
-    if ($configContent -match 'shared_env_config:\s*[\r\n]+(?:.*[\r\n]+)*?\s*enabled:\s*(true|false)') {
-        $enabled = $matches[1] -eq 'true'
+    try {
+        $config = Get-Content $ConfigFile -Raw | ConvertFrom-Yaml
+    }
+    catch {
+        Write-Error "Erreur lors de la lecture de $ConfigFile : $_"
+        return @()
     }
 
-    if (-not $enabled) {
+    if (-not $config.shared_env_config.enabled) {
         return @()
     }
 
     $sharedVars = @()
 
     # Extraire les groupes auto_inject
-    $autoInjectGroups = @('global')
-    if ($configContent -match 'auto_inject:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)') {
-        $autoInjectGroups = ($matches[1] -split '[\r\n]+' | ForEach-Object {
-            if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
-        }) | Where-Object { $_ }
+    $autoInjectGroups = @()
+    if ($config.shared_env_config.auto_inject) {
+        $autoInjectGroups = $config.shared_env_config.auto_inject
     }
 
-    # Extraire les services exclus
-    $excludeServices = @()
-    if ($configContent -match 'exclude_services:\s*\[(.*?)\]') {
-        $excludeServices = $matches[1] -split ',' | ForEach-Object { $_.Trim().Trim('"').Trim("'") }
-    } elseif ($configContent -match 'exclude_services:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)') {
-        $excludeServices = ($matches[1] -split '[\r\n]+' | ForEach-Object {
-            if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
-        }) | Where-Object { $_ }
-    }
-
-    # Vérifier si ce service est exclu
-    if ($ServiceName -and $excludeServices -contains $ServiceName) {
+    # Vérifier les exclusions
+    if ($ServiceName -and $config.shared_env_config.exclude_services -contains $ServiceName) {
         return @()
     }
 
-    # Extraire les groupes service-specific
+    # Extraire les groupes spécifiques au service
     $serviceGroups = @()
-    if ($ServiceName -and $configContent -match "service_specific:\s*[\r\n]+(?:.*[\r\n]+)*?\s*${ServiceName}:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)") {
-        $serviceGroups = ($matches[1] -split '[\r\n]+' | ForEach-Object {
-            if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
-        }) | Where-Object { $_ }
+    if ($ServiceName -and $config.shared_env_config.service_specific -and $config.shared_env_config.service_specific.$ServiceName) {
+        $serviceGroups = $config.shared_env_config.service_specific.$ServiceName
     }
 
-    # Combiner tous les groupes à charger
-    $allGroups = $autoInjectGroups + $serviceGroups | Select-Object -Unique
+    # Combiner tous les groupes unique
+    $allGroups = ($autoInjectGroups + $serviceGroups) | Select-Object -Unique
 
-    # Extraire les variables de chaque groupe
+    # Extraire les variables
     foreach ($group in $allGroups) {
-        if ($configContent -match "shared_env:\s*[\r\n]+(?:.*[\r\n]+)*?\s*${group}:\s*[\r\n]+((?:\s*-\s*.+[\r\n]+)+)") {
-            $groupVars = ($matches[1] -split '[\r\n]+' | ForEach-Object {
-                if ($_ -match '-\s*(.+)') { $matches[1].Trim() }
-            }) | Where-Object { $_ }
-
-            $sharedVars += $groupVars
+        if ($config.shared_env.$group) {
+            $sharedVars += $config.shared_env.$group
         }
     }
 
@@ -125,10 +110,13 @@ function Read-ProfileYaml {
         return $null
     }
     
-    $content = Get-Content $Path -Raw
-    # Conversion YAML simple (limité, pour une vraie app utiliser powershell-yaml)
-    # Pour l'instant on retourne le contenu brut
-    return $content
+    try {
+        return Get-Content $Path -Raw | ConvertFrom-Yaml
+    }
+    catch {
+        Write-Error "Erreur de syntaxe YAML dans $Path : $_"
+        return $null
+    }
 }
 
 # Fonction pour lister les profils
@@ -143,11 +131,13 @@ function Show-Profiles {
         return
     }
     
-    foreach ($profile in $profiles) {
-        $content = Get-Content $profile.FullName -Raw
-        $name = if ($content -match 'name:\s*(.+)') { $matches[1].Trim() } else { $profile.BaseName }
-        $enabled = if ($content -match 'enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
-        $description = if ($content -match 'description:\s*"(.+)"') { $matches[1] } else { "Sans description" }
+    foreach ($pro in $profiles) {
+        $data = Read-ProfileYaml -Path $pro.FullName
+        if (-not $data) { continue }
+        
+        $name = if ($data.name) { $data.name } else { $pro.BaseName }
+        $enabled = if ($null -ne $data.enabled) { $data.enabled } else { $true }
+        $description = if ($data.description) { $data.description } else { "Sans description" }
         
         $status = if ($enabled) { "✅ Activé" } else { "❌ Désactivé" }
         $statusColor = if ($enabled) { "Green" } else { "Red" }
@@ -155,7 +145,7 @@ function Show-Profiles {
         Write-Host "  $name" -ForegroundColor White -NoNewline
         Write-Host " - $status" -ForegroundColor $statusColor
         Write-Host "    📝 $description" -ForegroundColor DarkGray
-        Write-Host "    📁 $($profile.Name)" -ForegroundColor DarkGray
+        Write-Host "    📁 $($pro.Name)" -ForegroundColor DarkGray
         Write-Host ""
     }
 }
@@ -182,10 +172,14 @@ function Add-Profile {
     }
     
     $description = Read-Host "Description du service"
-    $image = Read-Host "Image Docker (ex: nginx:latest, registry.io/myapp:v1.0)"
-    $port = Read-Host "Port du service (ex: 8000)"
-    $hostPort = Read-Host "Port hôte (appuyez sur Entrée pour utiliser le même port)"
-    if ([string]::IsNullOrWhiteSpace($hostPort)) { $hostPort = $port }
+    $dockerPort = Read-Host "Port interne du conteneur (ex: 80, 8000)"
+    if ([string]::IsNullOrWhiteSpace($dockerPort)) { $dockerPort = "80" }
+
+    $localPort = Read-Host "Port exposé localement (via Traefik host) (ex: 8001)"
+    if ([string]::IsNullOrWhiteSpace($localPort)) { $localPort = $dockerPort }
+
+    $hostBinding = Read-Host "Port binding Docker (host:container) (Entrée pour utiliser ${localPort}:${dockerPort}, 'none' pour aucun)"
+    if ([string]::IsNullOrWhiteSpace($hostBinding)) { $hostBinding = "${localPort}:${dockerPort}" }
     
     Write-Host "`n🔑 Activation du service" -ForegroundColor Yellow
     $alwaysActive = (Read-Host "Service toujours actif (démarré par défaut) ? (O/n)") -ne 'n'
@@ -265,11 +259,11 @@ docker-compose:
   image: $image
   container_name: $name
   ports:
-    - "$($hostPort):$port"
+    - "$hostBinding"
   environment:
 $allEnv
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:$port/health"]
+    test: ["CMD", "curl", "-f", "http://localhost:$dockerPort/health"]
     interval: 30s
     timeout: 5s
     retries: 3
@@ -279,7 +273,8 @@ traefik:
   enabled: $($enableTraefik.ToString().ToLower())
   prefix: $traefikPrefix
   strip_prefix: $($stripPrefix.ToString().ToLower())
-  port: $port
+  local_port: $localPort
+  docker_port: $dockerPort
   priority: 10
 $secretsSection
 metadata:
@@ -312,17 +307,30 @@ function Generate-DockerCompose {
     }
     
     # Header
+    # Load Config from YAML (already validated in Get-SharedEnvironmentVariables)
+    $config = @{ namespace = 'default' }
+    if (Test-Path $ConfigFile) {
+        try {
+            $parsedConfig = Get-Content $ConfigFile -Raw | ConvertFrom-Yaml
+            if ($parsedConfig) { $config = $parsedConfig }
+        }
+        catch {}
+    }
+    
+    $namespace = if ($config.namespace) { $config.namespace } else { 'default' }
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    
     $compose = @"
 # Généré automatiquement par manage-profiles.ps1
 # NE PAS ÉDITER MANUELLEMENT - Vos modifications seront écrasées
 # Dernière génération : $timestamp
+name: $namespace
 
 services:
   # Reverse Proxy Traefik
   traefik:
-    image: traefik:v3.6.0
-    container_name: traefik
+    image: traefik:v3.6.4
+    container_name: "${namespace}_traefik"
     ports:
       - "8080:80"
       - "8081:8080"
@@ -335,34 +343,23 @@ services:
     networks:
       - traefik-network
     healthcheck:
-      test: ["CMD-SHELL", "traefik healthcheck"]
+      test: ["CMD", "traefik", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 3
 
 "@
     
-    # Lire la configuration
-    $config = $DefaultConfig.Clone()
-    if (Test-Path $ConfigFile) {
-        $configContent = Get-Content $ConfigFile -Raw
-        if ($configContent -match 'dozzle_enabled:\s*(true|false)') {
-            $config.dozzle_enabled = $matches[1] -eq 'true'
-        }
-        if ($configContent -match 'dozzle_port:\s*(\d+)') {
-            $config.dozzle_port = $matches[1]
-        }
-    }
-    
     # Ajouter Dozzle si activé
-    if ($config.dozzle_enabled) {
+    if ($null -eq $config.dozzle_enabled -or $config.dozzle_enabled) {
+        $dozzlePort = if ($config.dozzle_port) { $config.dozzle_port } else { 9999 }
         $compose += @"
   # Monitoring des logs
   dozzle:
     image: amir20/dozzle:latest
-    container_name: dozzle
+    container_name: "${namespace}_dozzle"
     ports:
-      - "$($config.dozzle_port):8080"
+      - "${dozzlePort}:8080"
     environment:
       - DOZZLE_TIMEOUT=15s
     volumes:
@@ -380,100 +377,67 @@ services:
     }
     
     # Ajouter chaque service
-    foreach ($profile in $profiles) {
-        $content = Get-Content $profile.FullName -Raw
-        $enabled = if ($content -match 'enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
+    foreach ($pro in $profiles) {
+        $data = Read-ProfileYaml -Path $pro.FullName
+        if (-not $data) { continue }
+        
+        $enabled = if ($null -ne $data.enabled) { $data.enabled } else { $true }
         
         if (-not $enabled) {
-            Write-Host "  ⏭️  Ignoré (désactivé) : $($profile.BaseName)" -ForegroundColor DarkGray
+            Write-Host "  ⏭️  Ignoré (désactivé) : $($pro.BaseName)" -ForegroundColor DarkGray
             continue
         }
         
-        Write-Host "  ✅ Ajout : $($profile.BaseName)" -ForegroundColor Green
+        Write-Host "  ✅ Ajout : $($pro.BaseName)" -ForegroundColor Green
         
-        # Extraire le nom et la section docker-compose
-        $name = if ($content -match '(?:^|[\r\n])name:\s*(.+)') { $matches[1].Trim() } else { $profile.BaseName }
-        $alwaysActive = if ($content -match 'always_active:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
-        $dockerProfile = if ($content -match 'docker_profile:\s*(.+)') { $matches[1].Trim() } else { $null }
+        $name = if ($data.name) { $data.name } else { $pro.BaseName }
+        $alwaysActive = if ($null -ne $data.always_active) { $data.always_active } else { $true }
+        $dockerProfile = if ($data.docker_profile) { $data.docker_profile } else { $null }
         if ($dockerProfile -eq 'null') { $dockerProfile = $null }
         
-        # Charger les variables d'environnement partagées pour ce service
+        # Charger les variables partagées
         $sharedEnvVars = Get-SharedEnvironmentVariables -ServiceName $name
-        $sharedEnvCount = $sharedEnvVars.Count
-
-        if ($sharedEnvCount -gt 0) {
-            Write-Host "    📌 $sharedEnvCount variable(s) partagée(s)" -ForegroundColor DarkGray
+        if ($sharedEnvVars.Count -gt 0) {
+            Write-Host "    📌 $($sharedEnvVars.Count) variable(s) partagée(s)" -ForegroundColor DarkGray
         }
 
-        if ($content -match 'docker-compose:\s*[\r\n]+((  [^#\r\n].+[\r\n]+)+)') {
-            # Extraire tout le contenu sous docker-compose:
-            $rawContent = $matches[1] -replace '[\r\n]+$', ''
+        # Traitement de la section docker-compose
+        if ($data.'docker-compose') {
+            # On clone l'objet pour ne pas modifier l'original (en mémoire)
+            # Note: Si powershell-yaml retourne Hashtable/OrderedDictionary, .Clone() est shallow.
+            # Mais comme on lit le fichier à chaque itération, c'est acceptable de modifier l'objet retourné.
+            $composeData = $data.'docker-compose'
             
-            # Filtrer la section ports: car on ne veut pas exposer les ports des services
-            $lines = $rawContent -split '[\r\n]+'
-            $filteredLines = @()
-            $skipPortsSection = $false
-            $environmentSectionFound = $false
-            $environmentLines = @()
-
-            foreach ($line in $lines) {
-                if ($line -match '^  ports:') {
-                    $skipPortsSection = $true
-                    continue
-                }
-                if ($skipPortsSection) {
-                    # Continuer à sauter tant qu'on est dans la section ports (lignes avec 4+ espaces)
-                    if ($line -match '^    ') {
-                        continue
-                    } else {
-                        $skipPortsSection = $false
-                    }
-                }
-
-                # Détecter la section environment
-                if ($line -match '^  environment:') {
-                    $environmentSectionFound = $true
-                }
-
-                $filteredLines += $line
+            # Retirer la section ports (gérée via Traefik)
+            if ($composeData.Contains('ports')) {
+                $composeData.Remove('ports')
             }
             
-            # Injecter les variables partagées dans la section environment
-            if ($sharedEnvCount -gt 0) {
-                if ($environmentSectionFound) {
-                    # Trouver où insérer les variables partagées (après environment:)
-                    $newFilteredLines = @()
-                    $injected = $false
+            # Injecter les variables partagées
+            if ($sharedEnvVars.Count -gt 0) {
+                if (-not $composeData.environment) { $composeData.environment = @() }
+                
+                # S'assurer que environment est un tableau
+                if ($composeData.environment -is [string]) {
+                    $composeData.environment = @($composeData.environment)
+                }
 
-                    for ($i = 0; $i -lt $filteredLines.Count; $i++) {
-                        $line = $filteredLines[$i]
-                        $newFilteredLines += $line
-
-                        if (-not $injected -and $line -match '^  environment:') {
-                            # Injecter les variables partagées juste après environment:
-                            $newFilteredLines += "    # Variables partagées (depuis config.yml)"
-                            foreach ($var in $sharedEnvVars) {
-                                $newFilteredLines += "    - $var"
-                            }
-                            $injected = $true
-                        }
-                    }
-
-                    $filteredLines = $newFilteredLines
-                } else {
-                    # Pas de section environment, en créer une
-                    $filteredLines += "  environment:"
-                    $filteredLines += "    # Variables partagées (depuis config.yml)"
-                    foreach ($var in $sharedEnvVars) {
-                        $filteredLines += "    - $var"
-                    }
+                $composeData.environment += "# Variables partagées"
+                foreach ($var in $sharedEnvVars) {
+                    $composeData.environment += $var
                 }
             }
-
-            # Ajouter 2 espaces d'indentation à chaque ligne (passer de 2 à 4 espaces)
-            $dockerComposeContent = ($filteredLines -join "`r`n") -replace '(?m)^  ', '    '
             
-            # Section profiles: si not always_active
+            # Convertir en YAML et indenter
+            # ConvertTo-Yaml peut ajouter '---' au début, on l'enlève
+            $yaml = $composeData | ConvertTo-Yaml
+            $yamlLines = $yaml -split "\r?\n" | Where-Object { $_ -ne '---' -and $_.Trim() -ne '' }
+            
+            # Indenter de 4 espaces
+            $indentedYaml = $yamlLines | ForEach-Object { "    $_" }
+            $dockerComposeContent = $indentedYaml -join "`n"
+            
+            # Section profiles
             $profilesSection = ""
             if (-not $alwaysActive -and $dockerProfile) {
                 $profilesSection = @"
@@ -519,106 +483,72 @@ function Generate-TraefikDynamic {
         New-Item -ItemType Directory -Path "traefik" | Out-Null
     }
     
-    $dynamic = @"
-# Généré automatiquement par manage-profiles.ps1
-http:
-  routers:
-    traefik-dashboard:
-      rule: "PathPrefix(``/traefik``)"
-      service: api@internal
-      priority: 1000
-
-"@
-    
-    # Lire la configuration pour Dozzle
-    $config = $DefaultConfig.Clone()
-    if (Test-Path $ConfigFile) {
-        $configContent = Get-Content $ConfigFile -Raw
-        if ($configContent -match 'dozzle_enabled:\s*(true|false)') {
-            $config.dozzle_enabled = $matches[1] -eq 'true'
-        }
-    }
-    
-    # Ajouter le router Dozzle si activé
-    if ($config.dozzle_enabled) {
-        $dynamic += @"
-    dozzle:
-      rule: "PathPrefix(``/logs``)"
-      service: dozzle
-      priority: 100
-
-"@
-    }
+    $routersStr = ""
+    $middlewaresStr = ""
+    $servicesStr = ""
     
     $profiles = Get-ChildItem -Path $ProfilesDir -Filter "*.yml" -ErrorAction SilentlyContinue
     
-    # Générer les routers pour chaque profil
-    foreach ($profile in $profiles) {
-        $content = Get-Content $profile.FullName -Raw
-        $enabled = if ($content -match 'enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
-        $traefikEnabled = if ($content -match 'traefik:\s*[\r\n]+\s*enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $false }
+    foreach ($pro in $profiles) {
+        $data = Read-ProfileYaml -Path $pro.FullName
+        if (-not $data) { continue }
+        
+        $enabled = if ($null -ne $data.enabled) { $data.enabled } else { $true }
+        
+        # Check traefik.enabled
+        $traefikEnabled = $false
+        if ($data.traefik -and ($null -ne $data.traefik.enabled)) {
+            $traefikEnabled = $data.traefik.enabled
+        }
         
         if (-not ($enabled -and $traefikEnabled)) { continue }
         
-        $name = if ($content -match 'name:\s*(.+)') { $matches[1].Trim() } else { $profile.BaseName }
-        $prefix = if ($content -match 'prefix:\s*(.+)') { $matches[1].Trim() } else { "/${name}" }
-        $port = if ($content -match 'traefik:[\s\S]*?port:\s*(\d+)') { $matches[1] } else { '80' }
-        $priority = if ($content -match 'priority:\s*(\d+)') { $matches[1] } else { '10' }
-        $stripPrefix = if ($content -match 'strip_prefix:\s*(true|false)') { $matches[1] -eq 'true' } else { $false }
+        $name = if ($data.name) { $data.name } else { $pro.BaseName }
         
-        $middlewares = if ($stripPrefix) { "`n      middlewares:`n        - ${name}-strip-prefix" } else { "" }
+        # Extract ports with fallbacks
+        $localPort = if ($data.traefik.local_port) { $data.traefik.local_port } else { '80' }
+        $dockerPort = if ($data.traefik.docker_port) { $data.traefik.docker_port } else { '80' }
         
-        $dynamic += @"
+        # Traefik configuration
+        $prefix = if ($data.traefik.prefix) { $data.traefik.prefix } else { "/$name" }
+        $stripPrefix = if ($null -ne $data.traefik.strip_prefix) { $data.traefik.strip_prefix } else { $false }
+        $healthPath = if ($data.traefik.health_path) { $data.traefik.health_path } else { '/health' }
+        $priority = if ($data.traefik.priority) { $data.traefik.priority } else { 10 }
+        
+        # --- Router ---
+        $middlewareList = ""
+        if ($stripPrefix) {
+            $middlewareList = @"
+      middlewares:
+        - ${name}-strip
+"@
+            # --- Middleware ---
+            $middlewaresStr += @"
+
+    ${name}-strip:
+      stripPrefix:
+        prefixes:
+          - "$prefix"
+"@
+        }
+        
+        $routersStr += @"
+
     ${name}:
-      rule: "PathPrefix(``${prefix}``)"
-      service: ${name}$middlewares
+      rule: "PathPrefix(``$prefix``)"
+      service: ${name}
       priority: $priority
+$middlewareList
+"@
 
-"@
-    }
-    
-    # Section services
-    $dynamic += @"
-  services:
-"@
-    
-    # Ajouter le service Dozzle si activé
-    if ($config.dozzle_enabled) {
-        $dynamic += @"
-
-    dozzle:
-      loadBalancer:
-        healthCheck:
-          path: /healthcheck
-          interval: 5s
-          timeout: 1s
-        servers:
-          - url: "http://dozzle:8080"
-        passHostHeader: true
-"@
-    }
-    
-    foreach ($profile in $profiles) {
-        $content = Get-Content $profile.FullName -Raw
-        $enabled = if ($content -match 'enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
-        $traefikEnabled = if ($content -match 'traefik:\s*[\r\n]+\s*enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $false }
-        
-        if (-not ($enabled -and $traefikEnabled)) { continue }
-        
-        $name = if ($content -match 'name:\s*(.+)') { $matches[1].Trim() } else { $profile.BaseName }
-        $port = if ($content -match 'traefik:[\s\S]*?port:\s*(\d+)') { $matches[1] } else { '80' }
-        $healthPath = if ($content -match 'traefik:[\s\S]*?health_path:\s*(.+)') { $matches[1].Trim() } else { '/health' }
-        $enableFailover = if ($content -match 'traefik:[\s\S]*?failover:\s*(true|false)') { $matches[1] -eq 'true' } else { $false }
-        $hostPort = if ($content -match 'traefik:[\s\S]*?host_port:\s*(\d+)') { $matches[1] } else { $port }
-        
-        if ($enableFailover) {
-            # Service avec failover (host + docker)
-            $dynamic += @"
+        # --- Services ---
+        $servicesStr += @"
 
     ${name}:
       failover:
         service: ${name}-host
         fallback: ${name}-docker
+
     ${name}-host:
       loadBalancer:
         healthCheck:
@@ -626,8 +556,9 @@ http:
           interval: 5s
           timeout: 1s
         servers:
-          - url: "http://external-ip:${hostPort}"
+          - url: "http://external-ip:${localPort}"
         passHostHeader: true
+
     ${name}-docker:
       loadBalancer:
         healthCheck:
@@ -635,52 +566,36 @@ http:
           interval: 5s
           timeout: 1s
         servers:
-          - url: "http://${name}:${port}"
+          - url: "http://${name}:${dockerPort}"
         passHostHeader: true
 "@
-        } else {
-            # Service simple sans failover
-            $dynamic += @"
-
-    ${name}:
-      loadBalancer:
-        healthCheck:
-          path: $healthPath
-          interval: 5s
-          timeout: 1s
-        servers:
-          - url: "http://${name}:${port}"
-        passHostHeader: true
-"@
-        }
     }
     
-    # Section middlewares
-    $dynamic += @"
-
-  middlewares:
+    $dynamic = @"
+# Généré automatiquement par manage-profiles.ps1
+# NE PAS ÉDITER MANUELLEMENT - Vos modifications seront écrasées
+http:
 "@
+
+    if ($routersStr.Trim().Length -gt 0) {
+        $dynamic += @"
+
+  routers:$routersStr
+"@
+    }
     
-    foreach ($profile in $profiles) {
-        $content = Get-Content $profile.FullName -Raw
-        $enabled = if ($content -match 'enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
-        $traefikEnabled = if ($content -match 'traefik:\s*[\r\n]+\s*enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $false }
-        
-        if (-not ($enabled -and $traefikEnabled)) { continue }
-        
-        $name = if ($content -match 'name:\s*(.+)') { $matches[1].Trim() } else { $profile.BaseName }
-        $prefix = if ($content -match 'prefix:\s*(.+)') { $matches[1].Trim() } else { "/${name}" }
-        $stripPrefix = if ($content -match 'strip_prefix:\s*(true|false)') { $matches[1] -eq 'true' } else { $false }
-        
-        if ($stripPrefix) {
-            $dynamic += @"
+    if ($middlewaresStr.Trim().Length -gt 0) {
+        $dynamic += @"
 
-    ${name}-strip-prefix:
-      stripPrefix:
-        prefixes:
-          - "${prefix}"
+  middlewares:$middlewaresStr
 "@
-        }
+    }
+    
+    if ($servicesStr.Trim().Length -gt 0) {
+        $dynamic += @"
+
+  services:$servicesStr
+"@
     }
     
     $dynamic | Out-File -FilePath $TraefikDynamicFile -Encoding UTF8
@@ -720,25 +635,22 @@ function Sync-Secrets {
     $profiles = Get-ChildItem -Path $ProfilesDir -Filter "*.yml" -ErrorAction SilentlyContinue
     $secretVars = @{}
     
-    foreach ($profile in $profiles) {
-        $content = Get-Content $profile.FullName -Raw
-        $enabled = if ($content -match 'enabled:\s*(true|false)') { $matches[1] -eq 'true' } else { $true }
+    foreach ($pro in $profiles) {
+        $data = Read-ProfileYaml -Path $pro.FullName
+        if (-not $data) { continue }
         
+        $enabled = if ($null -ne $data.enabled) { $data.enabled } else { $true }
         if (-not $enabled) { continue }
         
-        $profileName = if ($content -match 'name:\s*(.+)') { $matches[1].Trim() } else { $profile.BaseName }
+        $profileName = if ($data.name) { $data.name } else { $pro.BaseName }
         
         # Méthode 1 : Lire la section secrets: si elle existe
-        if ($content -match 'secrets:\s*[\r\n]+((?:  - .+[\r\n]+(?:    .+[\r\n]+)*)+)') {
-            $secretsSection = $matches[1]
-            
-            # Parser chaque secret avec ses propriétés
-            $secretBlocks = $secretsSection -split '(?=  - name:)'
-            foreach ($block in $secretBlocks) {
-                if ($block -match '- name:\s*(.+)') {
-                    $secretName = $matches[1].Trim()
-                    $secretDesc = if ($block -match 'description:\s*"?([^"\r\n]+)"?') { $matches[1].Trim() } else { '' }
-                    $secretDefault = if ($block -match 'default:\s*(.+)') { $matches[1].Trim() } else { 'changeme' }
+        if ($data.secrets) {
+            foreach ($secret in $data.secrets) {
+                if ($secret.name) {
+                    $secretName = $secret.name
+                    $secretDesc = if ($secret.description) { $secret.description } else { '' }
+                    $secretDefault = if ($secret.default) { $secret.default } else { 'changeme' }
                     
                     if (-not $secretVars.ContainsKey($secretName)) {
                         $secretVars[$secretName] = $secretDefault
@@ -746,17 +658,28 @@ function Sync-Secrets {
                     }
                 }
             }
-        } else {
+        }
+        else {
             # Méthode 2 (fallback) : Scanner les ${VAR:-default} dans environment:
-            $matches = [regex]::Matches($content, '\$\{([A-Z_][A-Z0-9_]*):?-([^}]*)\}')
-            foreach ($match in $matches) {
-                $varName = $match.Groups[1].Value
-                $defaultValue = $match.Groups[2].Value
-                if ($defaultValue -eq '') { $defaultValue = 'changeme' }
-                
-                if (-not $secretVars.ContainsKey($varName)) {
-                    $secretVars[$varName] = $defaultValue
-                    Write-Host "  📌 [$profileName] $varName = $defaultValue (auto-détecté)" -ForegroundColor DarkGray
+            # Pour cela, on a besoin du contenu brut ou d'inspecter les valeurs de l'objet environment
+            # L'approche Regex est plus simple pour trouver tous les patterns ${...} dans le fichier,
+            # indépendamment de la structure. Mais essayons de le faire via l'objet pour environment.
+            
+            if ($data.'docker-compose' -and $data.'docker-compose'.environment) {
+                $env = $data.'docker-compose'.environment
+                # environment peut être une liste ou un hashtable (si converti de object)
+                # YAML environment est souvent une liste de strings "KEY=VALUE"
+                foreach ($envLine in $env) {
+                    if ($envLine -match '\$\{([A-Z_][A-Z0-9_]*):?-([^}]*)\}') {
+                        $varName = $matches[1]
+                        $defaultValue = $matches[2]
+                        if ($defaultValue -eq '') { $defaultValue = 'changeme' }
+                        
+                        if (-not $secretVars.ContainsKey($varName)) {
+                            $secretVars[$varName] = $defaultValue
+                            Write-Host "  📌 [$profileName] $varName = $defaultValue (auto-détecté)" -ForegroundColor DarkGray
+                        }
+                    }
                 }
             }
         }
@@ -785,10 +708,12 @@ function Sync-Secrets {
                     }
                 }
                 Write-Host "`n  ✅ Fichier secrets.env déchiffré ($($existingSecrets.Count) variables existantes)" -ForegroundColor Green
-            } else {
+            }
+            else {
                 Write-Warning "Impossible de déchiffrer secrets.env. Création d'un nouveau fichier."
             }
-        } catch {
+        }
+        catch {
             Write-Warning "Erreur lors de la lecture de secrets.env: $_"
         }
     }
@@ -842,7 +767,8 @@ function Sync-Secrets {
         sops -e $tempFile | Out-File -FilePath $SecretsFile -Encoding UTF8
         Remove-Item $tempFile -Force
         Write-Host "`n  ✅ secrets.env mis à jour et rechiffré ($($newVars.Count) variable(s) ajoutée(s))" -ForegroundColor Green
-    } catch {
+    }
+    catch {
         Write-Error "Erreur lors du chiffrement: $_"
         if (Test-Path $tempFile) {
             Remove-Item $tempFile -Force
@@ -871,7 +797,8 @@ function Initialize-Secrets {
     # Copier l'exemple
     if (Test-Path "secrets.env.example") {
         Copy-Item "secrets.env.example" $SecretsFile
-    } else {
+    }
+    else {
         "# Secrets file - Edit with: sops secrets.env`n" | Out-File $SecretsFile -Encoding UTF8
     }
     

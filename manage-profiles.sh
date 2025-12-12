@@ -15,17 +15,43 @@ CONFIG_FILE="config.yml"
 # Configuration par défaut
 DOZZLE_ENABLED=true
 DOZZLE_PORT=9999
+NAMESPACE="default"
+
+# Helper: prefer yq if available
+YQ_CMD=""
+# Temporarily disable yq due to version issues
+# if command -v yq >/dev/null 2>&1; then
+#     YQ_CMD="yq"
+# fi
 
 # Charger la configuration
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
-        if grep -q "dozzle_enabled: false" "$CONFIG_FILE" 2>/dev/null; then
-            DOZZLE_ENABLED=false
-        fi
-        # Extraire seulement le nombre du port (ignorer le commentaire #)
-        local port=$(grep "dozzle_port:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*dozzle_port: *//' | sed 's/ *#.*//' | tr -d '\r')
-        if [ -n "$port" ]; then
-            DOZZLE_PORT=$port
+        if [ -n "$YQ_CMD" ]; then
+            # Using yq for robust parsing
+            DOZZLE_ENABLED=$(yq e '.dozzle_enabled // true' "$CONFIG_FILE" 2>/dev/null)
+            DOZZLE_PORT=$(yq e '.dozzle_port // 9999' "$CONFIG_FILE" 2>/dev/null)
+            NAMESPACE=$(yq e '.namespace // "devlocal"' "$CONFIG_FILE" 2>/dev/null)
+        else
+            if grep -q "dozzle_enabled: false" "$CONFIG_FILE" 2>/dev/null; then
+                DOZZLE_ENABLED=false
+            fi
+            # Extraire seulement le nombre du port (ignorer le commentaire #)
+            local port
+            port=$(grep "dozzle_port:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*dozzle_port: *//' | sed 's/ *#.*//' | tr -d '\r')
+            if [ -n "$port" ]; then
+                DOZZLE_PORT=$port
+            fi
+
+            # Extraire la valeur namespace si presente
+            local ns_line
+            ns_line=$(grep -E '^[[:space:]]*namespace:' "$CONFIG_FILE" 2>/dev/null | head -n1 || true)
+            if [ -n "$ns_line" ]; then
+                NAMESPACE=$(echo "$ns_line" | sed -E 's/^[[:space:]]*namespace:[[:space:]]*//' | tr -d '"' | tr -d "\r")
+                if [ -z "$NAMESPACE" ]; then
+                    NAMESPACE="devlocal"
+                fi
+            fi
         fi
     fi
 }
@@ -35,11 +61,43 @@ get_shared_env_vars() {
     local service_name="$1"
     local shared_vars=""
 
-    # Vérifier si le fichier config existe
     [ ! -f "$CONFIG_FILE" ] && echo "" && return
 
-    # Vérifier si shared_env est activé
-    local enabled=$(grep -A 10 "^shared_env_config:" "$CONFIG_FILE" | grep "enabled:" | sed 's/.*enabled: *//' | tr -d '\r' | head -1)
+    if [ -n "$YQ_CMD" ]; then
+        # yq-based implementation
+        local enabled
+        enabled=$(yq e '.shared_env_config.enabled // true' "$CONFIG_FILE" 2>/dev/null)
+        [ "$enabled" = "false" ] && echo "" && return
+
+        # auto_inject groups
+        local groups
+        groups=$(yq e '.shared_env_config.auto_inject[]? // []' "$CONFIG_FILE" 2>/dev/null || true)
+
+        # service specific groups
+        if [ -n "$service_name" ]; then
+            local svc_groups
+            svc_groups=$(yq e ".shared_env_config.service_specific.${service_name}[]? // []" "$CONFIG_FILE" 2>/dev/null || true)
+            if [ -n "$svc_groups" ]; then
+                groups="$groups\n$svc_groups"
+            fi
+        fi
+
+        # iterate groups and collect variables
+        while IFS= read -r grp; do
+            [ -z "$grp" ] && continue
+            # for each group, get the list under shared_env.<group>
+            while IFS= read -r v; do
+                [ -n "$v" ] && shared_vars="$shared_vars$v"$'\n'
+            done < <(yq e ".shared_env.${grp}[]? // []" "$CONFIG_FILE" 2>/dev/null || true)
+        done <<< "$groups"
+
+        echo "$shared_vars"
+        return
+    fi
+
+    # Fallback: original grep/sed implementation
+    local enabled
+    enabled=$(grep -A 10 "^shared_env_config:" "$CONFIG_FILE" | grep "enabled:" | sed 's/.*enabled: *//' | tr -d '\r' | head -1)
     [ "$enabled" = "false" ] && echo "" && return
 
     # Récupérer les groupes auto_inject
@@ -52,7 +110,8 @@ get_shared_env_vars() {
         fi
         if [ "$in_auto_inject" = true ]; then
             if echo "$line" | grep -q "^    - "; then
-                local group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                local group
+                group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
                 auto_inject_groups="${auto_inject_groups} ${group}"
             else
                 break
@@ -70,7 +129,8 @@ get_shared_env_vars() {
             fi
             if [ "$in_exclude" = true ]; then
                 if echo "$line" | grep -q "^    - "; then
-                    local excluded_service=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                    local excluded_service
+                    excluded_service=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
                     if [ "$excluded_service" = "$service_name" ]; then
                         echo ""
                         return
@@ -99,11 +159,14 @@ get_shared_env_vars() {
                 fi
                 if [ "$in_current_service" = true ]; then
                     if echo "$line" | grep -q "^      - "; then
-                        local group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                        local group
+                        group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
                         service_groups="${service_groups} ${group}"
                     else
                         in_current_service=false
-                        [ $(echo "$line" | grep -c "^    [a-z]") -eq 0 ] && break
+                        if [ "$(echo "$line" | grep -c "^    [a-z]")" -eq 0 ]; then
+                            break
+                        fi
                     fi
                 fi
             fi
@@ -111,7 +174,8 @@ get_shared_env_vars() {
     fi
 
     # Combiner tous les groupes
-    local all_groups="${auto_inject_groups} ${service_groups}"
+    local all_groups
+    all_groups="${auto_inject_groups} ${service_groups}"
 
     # Extraire les variables de chaque groupe
     for group in $all_groups; do
@@ -131,11 +195,14 @@ get_shared_env_vars() {
                 fi
                 if [ "$in_group" = true ]; then
                     if echo "$line" | grep -q "^    - "; then
-                        local var=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                        local var
+                        var=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
                         shared_vars="${shared_vars}${var}"$'\n'
                     else
                         in_group=false
-                        [ $(echo "$line" | grep -c "^  [a-z]") -eq 0 ] && break
+                        if [ "$(echo "$line" | grep -c "^  [a-z]")" -eq 0 ]; then
+                            break
+                        fi
                     fi
                 fi
             fi
@@ -157,11 +224,15 @@ show_profiles() {
     
     for profile in $PROFILES_DIR/*.yml; do
         [ -f "$profile" ] || continue
-        local basename=$(basename "$profile")
-        local name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || echo "${basename%.yml}")
-        local enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
-        local description=$(grep -m1 '^description:' "$profile" | sed 's/description: *"//' | sed 's/"$//' | tr -d '\r' || echo "Sans description")
-        
+        local basename
+        basename=$(basename "$profile")
+        local name
+        name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || echo "${basename%.yml}")
+        local enabled
+        enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
+        local description
+        description=$(grep -m1 '^description:' "$profile" | sed 's/description: *"//' | sed 's/"$//' | tr -d '\r' || echo "Sans description")
+
         if [ "$enabled" = "true" ]; then
             echo -e "  \033[97m$name\033[0m - \033[92m✅ Activé\033[0m"
         else
@@ -196,9 +267,16 @@ add_profile() {
     
     read -p "Description du service: " description
     read -p "Image Docker (ex: nginx:latest, registry.io/myapp:v1.0): " image
-    read -p "Port du service (ex: 8000): " port
-    read -p "Port hôte (Entrée pour utiliser le même): " host_port
-    [ -z "$host_port" ] && host_port=$port
+    read -p "Port interne du conteneur (ex: 80, 8000): " docker_port
+    read -p "Port exposé localement (via Traefik host) (ex: 8001): " local_port
+    [ -z "$docker_port" ] && docker_port="80"
+    [ -z "$local_port" ] && local_port=$docker_port
+    
+    # Port mapping docker-compose (host:container) can be same as local_port:docker_port or different
+    read -p "Port binding Docker (host:container) (Entrée pour utiliser $local_port:$docker_port, 'none' pour aucun): " host_binding
+    if [ -z "$host_binding" ]; then
+        host_binding="$local_port:$docker_port"
+    fi
     
     echo -e "\n\033[93m🔑 Activation du service\033[0m"
     read -p "Service toujours actif (démarré par défaut) ? (O/n): " always_active_input
@@ -272,11 +350,11 @@ docker-compose:
   image: $image
   container_name: $name
   ports:
-    - "$host_port:$port"
+    - "$host_binding"
   environment:
 $all_env
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:$port/health"]
+    test: ["CMD", "curl", "-f", "http://localhost:$docker_port/health"]
     interval: 30s
     timeout: 5s
     retries: 3
@@ -286,7 +364,8 @@ traefik:
   enabled: $enable_traefik
   prefix: $traefik_prefix
   strip_prefix: $strip_prefix
-  port: $port
+  local_port: $local_port
+  docker_port: $docker_port
   priority: 10
 $secrets_section
 metadata:
@@ -318,17 +397,19 @@ generate_docker_compose() {
     load_config
     
     # Header avec timestamp
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     cat > "$DOCKER_COMPOSE_FILE" << EOF
 # Généré automatiquement par manage-profiles.sh
 # NE PAS ÉDITER MANUELLEMENT - Vos modifications seront écrasées
 # Dernière génération : $timestamp
+name: $NAMESPACE
 
 services:
   # Reverse Proxy Traefik
   traefik:
-    image: traefik:v3.6.0
-    container_name: traefik
+    image: traefik:v3.6.4
+    container_name: ${COMPOSE_PROJECT_NAME:-devlocal}_traefik
     ports:
       - "8080:80"
       - "8081:8080"
@@ -341,7 +422,7 @@ services:
     networks:
       - traefik-network
     healthcheck:
-      test: ["CMD-SHELL", "traefik healthcheck"]
+      test: ["CMD", "traefik", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -354,7 +435,7 @@ EOF
   # Monitoring des logs
   dozzle:
     image: amir20/dozzle:latest
-    container_name: dozzle
+    container_name: ${COMPOSE_PROJECT_NAME:-devlocal}_dozzle
     ports:
       - "$DOZZLE_PORT:8080"
     environment:
@@ -377,40 +458,45 @@ EOF
     for profile in $PROFILES_DIR/*.yml; do
         [ -f "$profile" ] || continue
         
-        local enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
+        local enabled
+        enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
         if [ "$enabled" != "true" ]; then
             echo -e "  \033[90m⏭️  Ignoré (désactivé) : $(basename $profile .yml)\033[0m"
             continue
         fi
         
-        local name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
+        local name
+        name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
         echo -e "  \033[92m✅ Ajout : $(basename $profile .yml)\033[0m"
 
         # Charger les variables partagées pour ce service
-        local shared_env_vars=$(get_shared_env_vars "$name")
+        local shared_env_vars
+        shared_env_vars=$(get_shared_env_vars "$name")
         local shared_count=0
         if [ -n "$shared_env_vars" ]; then
             shared_count=$(echo "$shared_env_vars" | grep -c "^" || echo 0)
             echo -e "    \033[90m📌 $shared_count variable(s) partagée(s)\033[0m"
         fi
 
-        local always_active=$(grep -m1 "^always_active:" "$profile" | sed 's/always_active: *//' | sed 's/ *#.*//' | tr -d '\r' || echo "true")
-        local docker_profile_raw=$(grep -m1 "^docker_profile:" "$profile" | sed 's/docker_profile: *//' | sed 's/ *#.*//' | tr -d '\r')
+        local always_active
+        always_active=$(grep -m1 "^always_active:" "$profile" | sed 's/always_active: *//' | sed 's/ *#.*//' | tr -d '\r' || echo "true")
+        local docker_profile_raw
+        docker_profile_raw=$(grep -m1 "^docker_profile:" "$profile" | sed 's/docker_profile: *//' | sed 's/ *#.*//' | tr -d '\r')
         # Considérer null, vide, ou whitespace comme absence de profil
-        local docker_profile=$(echo "$docker_profile_raw" | xargs)  # trim whitespace
+        local docker_profile
+        docker_profile=$(echo "$docker_profile_raw" | xargs)  # trim whitespace
         if [ "$docker_profile" = "null" ] || [ -z "$docker_profile" ]; then
             docker_profile=""
         fi
 
         # Extraire la section docker-compose:
-        local compose_section=$(sed -n '/^docker-compose:/,/^[a-z]/{//!p}' "$profile")
-        
+        local compose_section
+        compose_section=$(sed -n '/^docker-compose:/,/^[a-z]/{//!p}' "$profile")
+
         # Traiter la section environment pour injecter les variables partagées
         local filtered_compose=""
         local in_ports=false
-        local in_environment=false
         local environment_found=false
-        local environment_indent="    "
 
         while IFS= read -r line; do
             # Gérer la section ports
@@ -438,7 +524,6 @@ EOF
                         [ -n "$var" ] && filtered_compose="${filtered_compose}    - ${var}"$'\n'
                     done <<< "$shared_env_vars"
                 fi
-                in_environment=true
                 continue
             fi
 
@@ -465,8 +550,9 @@ EOF
         fi
 
         # Ajouter 2 espaces d'indentation
-        local indented=$(echo "$filtered_compose" | sed 's/^  /    /')
-        
+        local indented
+        indented=$(echo "$filtered_compose" | sed 's/^  /    /')
+
         # Nettoyer l'indentation (retirer les lignes vides en fin)
         indented=$(echo "$indented" | sed -e :a -e '/^\s*$/d;N;ba')
 
@@ -508,164 +594,85 @@ generate_traefik_dynamic() {
     
     mkdir -p "traefik"
     
-    cat > "$TRAEFIK_DYNAMIC_FILE" << 'EOF'
+    # Buffers
+    local routers=""
+    local middlewares=""
+    local services=""
+    
+    # Générer les services pour chaque profil
+    for profile in $PROFILES_DIR/*.yml; do
+        [ -f "$profile" ] || continue
+        
+        # Rely on yq (jq wrapper) for parsing
+        local enabled
+        enabled=$(yq -r '.enabled // true' "$profile")
+        local traefik_enabled
+        traefik_enabled=$(yq -r '.traefik.enabled // false' "$profile")
+        
+        if [ "$enabled" != "true" ] || [ "$traefik_enabled" != "true" ]; then
+            continue
+        fi
+
+        local name
+        name=$(yq -r '.name' "$profile")
+        if [ "$name" = "null" ] || [ -z "$name" ]; then name=$(basename "$profile" .yml); fi
+
+        local local_port
+        local_port=$(yq -r '.traefik.local_port // 80' "$profile")
+        
+        local docker_port
+        docker_port=$(yq -r '.traefik.docker_port // 80' "$profile")
+
+        local health_path
+        health_path=$(yq -r '.traefik.health_path // "/health"' "$profile")
+        
+        local prefix
+        prefix=$(yq -r ".traefik.prefix // \"/$name\"" "$profile")
+        
+        local strip_prefix
+        strip_prefix=$(yq -r '.traefik.strip_prefix // false' "$profile")
+        
+        local priority
+        priority=$(yq -r '.traefik.priority // 10' "$profile")
+
+        # --- Middleware ---
+        local middleware_ref=""
+        if [ "$strip_prefix" = "true" ]; then
+             middleware_ref=$'\n'"      middlewares:"$'\n'"        - ${name}-strip"
+             middlewares="${middlewares}"$'\n'"    ${name}-strip:"$'\n'"      stripPrefix:"$'\n'"        prefixes:"$'\n'"          - \"$prefix\""
+        fi
+
+        # --- Router ---
+        # Utilisation de backticks escaped pour la règle PathPrefix
+        routers="${routers}"$'\n'"    ${name}:"$'\n'"      rule: \"PathPrefix(\`$prefix\`)\""$'\n'"      service: ${name}"$'\n'"      priority: $priority${middleware_ref}"
+
+        # --- Service ---
+        services="${services}"$'\n'"    ${name}:"$'\n'"      failover:"$'\n'"        service: ${name}-host"$'\n'"        fallback: ${name}-docker"
+        services="${services}"$'\n'"    ${name}-host:"$'\n'"      loadBalancer:"$'\n'"        healthCheck:"$'\n'"          path: $health_path"$'\n'"          interval: 5s"$'\n'"          timeout: 1s"$'\n'"        servers:"$'\n'"          - url: \"http://external-ip:${local_port}\""$'\n'"        passHostHeader: true"
+        services="${services}"$'\n'"    ${name}-docker:"$'\n'"      loadBalancer:"$'\n'"        healthCheck:"$'\n'"          path: $health_path"$'\n'"          interval: 5s"$'\n'"          timeout: 1s"$'\n'"        servers:"$'\n'"          - url: \"http://${name}:${docker_port}\""$'\n'"        passHostHeader: true"
+    done
+    
+    # Écriture du fichier header
+    cat > "$TRAEFIK_DYNAMIC_FILE" << EOF
 # Généré automatiquement par manage-profiles.sh
+# NE PAS ÉDITER MANUELLEMENT - Vos modifications seront écrasées
 http:
-  routers:
-    traefik-dashboard:
-      rule: "PathPrefix(`/traefik`)"
-      service: api@internal
-      priority: 1000
-
 EOF
-    
-    load_config
-    
-    # Ajouter le router Dozzle si activé
-    if [ "$DOZZLE_ENABLED" = "true" ]; then
-        cat >> "$TRAEFIK_DYNAMIC_FILE" << 'EOF'
-    dozzle:
-      rule: "PathPrefix(`/logs`)"
-      service: dozzle
-      priority: 100
 
-EOF
+    # Ajout des sections si non vides
+    if [ -n "$routers" ]; then
+        echo "  routers:$routers" >> "$TRAEFIK_DYNAMIC_FILE"
     fi
     
-    # Générer les routers pour chaque profil
-    for profile in $PROFILES_DIR/*.yml; do
-        [ -f "$profile" ] || continue
-        
-        local enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
-        local traefik_enabled=$(sed -n '/^traefik:/,/^[a-z]/{/enabled:/p}' "$profile" | sed 's/.*enabled: *//' | tr -d '\r')
-        
-        [ "$enabled" != "true" ] && continue
-        [ "$traefik_enabled" != "true" ] && continue
-        
-        local name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
-        local prefix=$(sed -n '/^traefik:/,/^[a-z]/{/prefix:/p}' "$profile" | sed 's/.*prefix: *//' | tr -d '\r' || echo "/$name")
-        local port=$(sed -n '/^traefik:/,/^[a-z]/{/port:/p}' "$profile" | sed 's/.*port: *//' | tr -d '\r' || echo "80")
-        local priority=$(sed -n '/^traefik:/,/^[a-z]/{/priority:/p}' "$profile" | sed 's/.*priority: *//' | tr -d '\r' || echo "10")
-        local strip_prefix=$(sed -n '/^traefik:/,/^[a-z]/{/strip_prefix:/p}' "$profile" | sed 's/.*strip_prefix: *//' | tr -d '\r')
-        
-        local middlewares=""
-        if [ "$strip_prefix" = "true" ]; then
-            middlewares=$'\n'"      middlewares:"$'\n'"        - ${name}-strip-prefix"
-        fi
-        
-        cat >> "$TRAEFIK_DYNAMIC_FILE" << EOF
-    $name:
-      rule: "PathPrefix(\`$prefix\`)"
-      service: $name$middlewares
-      priority: $priority
-
-EOF
-    done
-    
-    # Section services
-    echo "  services:" >> "$TRAEFIK_DYNAMIC_FILE"
-    
-    # Ajouter le service Dozzle si activé
-    if [ "$DOZZLE_ENABLED" = "true" ]; then
-        cat >> "$TRAEFIK_DYNAMIC_FILE" << 'EOF'
-
-    dozzle:
-      loadBalancer:
-        healthCheck:
-          path: /healthcheck
-          interval: 5s
-          timeout: 1s
-        servers:
-          - url: "http://dozzle:8080"
-        passHostHeader: true
-EOF
+    if [ -n "$middlewares" ]; then
+        echo "" >> "$TRAEFIK_DYNAMIC_FILE"
+        echo "  middlewares:$middlewares" >> "$TRAEFIK_DYNAMIC_FILE"
     fi
     
-    for profile in $PROFILES_DIR/*.yml; do
-        [ -f "$profile" ] || continue
-        
-        local enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
-        local traefik_enabled=$(sed -n '/^traefik:/,/^[a-z]/{/enabled:/p}' "$profile" | sed 's/.*enabled: *//' | tr -d '\r')
-        
-        [ "$enabled" != "true" ] && continue
-        [ "$traefik_enabled" != "true" ] && continue
-        
-        local name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
-        local port=$(sed -n '/^traefik:/,/^[a-z]/{/port:/p}' "$profile" | sed 's/.*port: *//' | tr -d '\r' || echo "80")
-        local health_path=$(sed -n '/^traefik:/,/^[a-z]/{/health_path:/p}' "$profile" | sed 's/.*health_path: *//' | tr -d '\r' || echo "/health")
-        local enable_failover=$(sed -n '/^traefik:/,/^[a-z]/{/failover:/p}' "$profile" | sed 's/.*failover: *//' | tr -d '\r')
-        local host_port=$(sed -n '/^traefik:/,/^[a-z]/{/host_port:/p}' "$profile" | sed 's/.*host_port: *//' | tr -d '\r' || echo "$port")
-        
-        if [ "$enable_failover" = "true" ]; then
-            # Service avec failover
-            cat >> "$TRAEFIK_DYNAMIC_FILE" << EOF
-
-    $name:
-      failover:
-        service: ${name}-host
-        fallback: ${name}-docker
-    ${name}-host:
-      loadBalancer:
-        healthCheck:
-          path: $health_path
-          interval: 5s
-          timeout: 1s
-        servers:
-          - url: "http://external-ip:${host_port}"
-        passHostHeader: true
-    ${name}-docker:
-      loadBalancer:
-        healthCheck:
-          path: $health_path
-          interval: 5s
-          timeout: 1s
-        servers:
-          - url: "http://${name}:${port}"
-        passHostHeader: true
-EOF
-        else
-            # Service simple
-            cat >> "$TRAEFIK_DYNAMIC_FILE" << EOF
-
-    $name:
-      loadBalancer:
-        healthCheck:
-          path: $health_path
-          interval: 5s
-          timeout: 1s
-        servers:
-          - url: "http://${name}:${port}"
-        passHostHeader: true
-EOF
-        fi
-    done
-    
-    # Section middlewares
-    echo -e "\n  middlewares:" >> "$TRAEFIK_DYNAMIC_FILE"
-    
-    for profile in $PROFILES_DIR/*.yml; do
-        [ -f "$profile" ] || continue
-        
-        local enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
-        local traefik_enabled=$(sed -n '/^traefik:/,/^[a-z]/{/enabled:/p}' "$profile" | sed 's/.*enabled: *//' | tr -d '\r')
-        
-        [ "$enabled" != "true" ] && continue
-        [ "$traefik_enabled" != "true" ] && continue
-        
-        local name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
-        local prefix=$(sed -n '/^traefik:/,/^[a-z]/{/prefix:/p}' "$profile" | sed 's/.*prefix: *//' | tr -d '\r' || echo "/$name")
-        local strip_prefix=$(sed -n '/^traefik:/,/^[a-z]/{/strip_prefix:/p}' "$profile" | sed 's/.*strip_prefix: *//' | tr -d '\r')
-        
-        if [ "$strip_prefix" = "true" ]; then
-            cat >> "$TRAEFIK_DYNAMIC_FILE" << EOF
-
-    ${name}-strip-prefix:
-      stripPrefix:
-        prefixes:
-          - "$prefix"
-EOF
-        fi
-    done
+    if [ -n "$services" ]; then
+        echo "" >> "$TRAEFIK_DYNAMIC_FILE"
+        echo "  services:$services" >> "$TRAEFIK_DYNAMIC_FILE"
+    fi
     
     echo -e "\033[92m✅ traefik/dynamic.yml généré\033[0m"
 }
@@ -704,11 +711,13 @@ sync_secrets() {
     for profile in $PROFILES_DIR/*.yml; do
         [ -f "$profile" ] || continue
         
-        local enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
+        local enabled
+        enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
         [ "$enabled" != "true" ] && continue
         
-        local profile_name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
-        
+        local profile_name
+        profile_name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r' || basename "$profile" .yml)
+
         # Méthode 1 : Lire la section secrets:
         if grep -q "^secrets:" "$profile"; then
             local in_secrets=false
@@ -719,7 +728,8 @@ sync_secrets() {
                 fi
                 if [ "$in_secrets" = true ]; then
                     if echo "$line" | grep -q "^  - name:"; then
-                        local secret_name=$(echo "$line" | sed 's/.*name: *//' | tr -d '\r')
+                        local secret_name
+                        secret_name=$(echo "$line" | sed 's/.*name: *//' | tr -d '\r')
                         local secret_desc=""
                         local secret_default="changeme"
                         
@@ -748,8 +758,10 @@ sync_secrets() {
         
         # Méthode 2 (fallback) : Scanner les ${VAR:-default}
         while IFS= read -r match; do
-            local var_name=$(echo "$match" | sed 's/.*\${\([A-Z_][A-Z0-9_]*\).*/\1/')
-            local default_value=$(echo "$match" | sed 's/.*:-\([^}]*\)}.*/\1/')
+            local var_name
+            var_name=$(echo "$match" | sed 's/.*\${\([A-Z_][A-Z0-9_]*\).*/\1/')
+            local default_value
+            default_value=$(echo "$match" | sed 's/.*:-\([^}]*\)}.*/\1/')
             [ -z "$default_value" ] && default_value="changeme"
             
             if [ -n "$var_name" ] && [ -z "${secret_vars[$var_name]}" ]; then
