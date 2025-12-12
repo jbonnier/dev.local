@@ -764,7 +764,7 @@ function Sync-Secrets {
     $newContent | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
     
     # Chiffrer avec SOPS
-    # Note: On passe --filename-override secrets.env pour que SOPS applique les règles de .sops.local.yaml
+    # Note: On passe --filename-override secrets.env pour que SOPS applique les règles de .sops.yaml
     Write-Host "Chiffrement du fichier temporaire..." -ForegroundColor Cyan
     try {
         # PowerShell redirection handling for external commands can be tricky with binary data

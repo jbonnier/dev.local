@@ -55,7 +55,7 @@ validate_sops() {
     return 0
 }
 
-# Valider la configuration SOPS (.sops.local.yaml)
+# Valider la configuration SOPS (.sops.yaml)
 validate_sops_config() {
     if [ ! -f ".sops.yaml" ]; then
         echo -e "\033[91mErreur: .sops.yaml non trouvé\033[0m"
@@ -64,7 +64,7 @@ validate_sops_config() {
     
     # Vérifier si une méthode de chiffrement est active (non commentée)
     # On cherche des lignes qui ne commencent pas par # et qui contiennent une clé de chiffrement valide
-    if ! grep -qE "^\s*(- )?(kms|age|pgp|gcp_kms|azure_kv|hc_vault):" .sops.local.yaml; then
+    if ! grep -qE "^\s*(- )?(kms|age|pgp|gcp_kms|azure_kv|hc_vault):" .sops.yaml; then
         echo -e "\033[91mErreur: Aucune méthode de chiffrement configurée dans .sops.yaml\033[0m"
         echo -e "\033[93mVeuillez éditer .sops.yaml pour décommenter et configurer 'kms' ou 'age'\033[0m"
         return 1
