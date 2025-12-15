@@ -36,6 +36,12 @@ shared_env:
   #   - DATABASE_POOL_SIZE=10
   #   - CACHE_TTL=3600
 
+  # Exemple: variables spécifiques uniquement au service 'demo'
+  # Déclarez un groupe dédié avec vos variables
+  demo_only:
+    - DEMO_ONLY_VAR=demo-only-value
+    # - API_GATEWAY_URL=https://api.demo.local  # <- exemple d'override spécifique à demo
+
 # Configuration de l'injection des variables partagées
 shared_env_config:
   # Activer l'injection automatique
@@ -52,7 +58,9 @@ shared_env_config:
     - dozzle
 
   # Inclure des groupes spécifiques pour certains services
-  # service_specific:
+  service_specific:
+    demo:
+      - demo_only
   #   mon-service:
   #     - custom
 

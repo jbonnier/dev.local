@@ -111,7 +111,7 @@ get_shared_env_vars() {
         if [ "$in_auto_inject" = true ]; then
             if echo "$line" | grep -q "^    - "; then
                 local group
-                group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                group=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '\r')
                 auto_inject_groups="${auto_inject_groups} ${group}"
             else
                 break
@@ -130,7 +130,7 @@ get_shared_env_vars() {
             if [ "$in_exclude" = true ]; then
                 if echo "$line" | grep -q "^    - "; then
                     local excluded_service
-                    excluded_service=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                    excluded_service=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '\r')
                     if [ "$excluded_service" = "$service_name" ]; then
                         echo ""
                         return
@@ -160,7 +160,7 @@ get_shared_env_vars() {
                 if [ "$in_current_service" = true ]; then
                     if echo "$line" | grep -q "^      - "; then
                         local group
-                        group=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                        group=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '\r')
                         service_groups="${service_groups} ${group}"
                     else
                         in_current_service=false
@@ -196,7 +196,8 @@ get_shared_env_vars() {
                 if [ "$in_group" = true ]; then
                     if echo "$line" | grep -q "^    - "; then
                         local var
-                        var=$(echo "$line" | sed 's/.*- *//' | tr -d '\r')
+                        # Fix: strip only the YAML list marker, preserve hyphens in values
+                        var=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '\r')
                         shared_vars="${shared_vars}${var}"$'\n'
                     else
                         in_group=false
@@ -523,6 +524,8 @@ EOF
                     while IFS= read -r var; do
                         [ -n "$var" ] && filtered_compose="${filtered_compose}    - ${var}"$'\n'
                     done <<< "$shared_env_vars"
+                    # Séparateur pour les variables propres au service
+                    filtered_compose="${filtered_compose}    # Variables exclusives du service"$'\n'
                 fi
                 continue
             fi

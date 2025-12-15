@@ -413,26 +413,51 @@ services:
                 $composeData.Remove('ports')
             }
             
-            # Injecter les variables partagées
-            if ($sharedEnvVars.Count -gt 0) {
-                if (-not $composeData.environment) { $composeData.environment = @() }
-                
-                # S'assurer que environment est un tableau
-                if ($composeData.environment -is [string]) {
-                    $composeData.environment = @($composeData.environment)
-                }
-
-                $composeData.environment += "# Variables partagées"
-                foreach ($var in $sharedEnvVars) {
-                    $composeData.environment += $var
-                }
+            # Préparer l'injection des variables partagées sans polluer les données YAML (pas de faux entries)
+            $hadEnvBefore = $false
+            if ($composeData.Contains('environment') -and $composeData.environment) {
+                $hadEnvBefore = $true
+            }
+            if ($sharedEnvVars.Count -gt 0 -and -not $composeData.environment) {
+                # Crée une clé environment vide pour pouvoir insérer dans le YAML rendu
+                $composeData.environment = @()
             }
             
-            # Convertir en YAML et indenter
-            # ConvertTo-Yaml peut ajouter '---' au début, on l'enlève
+            # Convertir en YAML (sans commentaires) puis injecter les commentaires/vars en texte
             $yaml = $composeData | ConvertTo-Yaml
             $yamlLines = $yaml -split "\r?\n" | Where-Object { $_ -ne '---' -and $_.Trim() -ne '' }
-            
+
+            if ($sharedEnvVars.Count -gt 0) {
+                $newYamlLines = New-Object System.Collections.Generic.List[string]
+                $inserted = $false
+                for ($i = 0; $i -lt $yamlLines.Count; $i++) {
+                    $line = $yamlLines[$i]
+                    $newYamlLines.Add($line)
+
+                    if (-not $inserted -and $line -match '^(\s*)environment:\s*$') {
+                        $envIndent = $matches[1]
+                        # Trouver indentation des items; sinon fallback à envIndent + deux espaces
+                        $itemIndent = $null
+                        if ($i + 1 -lt $yamlLines.Count -and $yamlLines[$i + 1] -match '^(\s*)-\s') {
+                            $itemIndent = $matches[1]
+                        }
+                        if (-not $itemIndent) { $itemIndent = "$envIndent  " }
+
+                        # Insérer le bloc partagé puis un séparateur pour le service (si des vars existent côté service)
+                        $newYamlLines.Add("$itemIndent# Variables partagées (depuis config.yml)")
+                        foreach ($var in $sharedEnvVars) {
+                            $newYamlLines.Add("$itemIndent- $var")
+                        }
+                        if ($hadEnvBefore) {
+                            $newYamlLines.Add("$itemIndent# Variables exclusives du service")
+                        }
+
+                        $inserted = $true
+                    }
+                }
+                $yamlLines = $newYamlLines
+            }
+
             # Indenter de 4 espaces
             $indentedYaml = $yamlLines | ForEach-Object { "    $_" }
             $dockerComposeContent = $indentedYaml -join "`n"
