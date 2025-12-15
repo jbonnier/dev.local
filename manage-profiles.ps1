@@ -602,25 +602,48 @@ $middlewareList
 http:
 "@
 
-    if ($routersStr.Trim().Length -gt 0) {
-        $dynamic += @"
-
-  routers:$routersStr
-"@
+    # Load config to check if Dozzle is enabled
+    $configData = @{ dozzle_enabled = $true; dozzle_port = 9999 }
+    if (Test-Path $ConfigFile) {
+        try {
+            $parsedConfig = Get-Content $ConfigFile -Raw | ConvertFrom-Yaml
+            if ($parsedConfig) { $configData = $parsedConfig }
+        }
+        catch {}
     }
-    
-    if ($middlewaresStr.Trim().Length -gt 0) {
-        $dynamic += @"
+    $dozzleEnabled = if ($null -eq $configData.dozzle_enabled) { $true } else { $configData.dozzle_enabled }
 
-  middlewares:$middlewaresStr
+    # Build the dynamic configuration
+    if ($routersStr.Trim().Length -gt 0 -or $dozzleEnabled) {
+        $dynamic += "`n  routers:$routersStr"
+        if ($dozzleEnabled) {
+            $dynamic += @"
+
+    dozzle-logs:
+      rule: "PathPrefix(``/logs``)"
+      service: dozzle
+      priority: 10
 "@
+        }
     }
-    
-    if ($servicesStr.Trim().Length -gt 0) {
-        $dynamic += @"
 
-  services:$servicesStr
+    # Services section
+    if ($servicesStr.Trim().Length -gt 0 -or $dozzleEnabled) {
+        $dynamic += "`n`n  services:$servicesStr"
+        if ($dozzleEnabled) {
+            $dynamic += @"
+
+    dozzle:
+      loadBalancer:
+        healthCheck:
+          path: /logs
+          interval: 5s
+          timeout: 2s
+        servers:
+          - url: "http://dozzle:8080"
+        passHostHeader: true
 "@
+        }
     }
     
     $dynamic | Out-File -FilePath $TraefikDynamicFile -Encoding UTF8

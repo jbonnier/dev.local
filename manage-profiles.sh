@@ -444,6 +444,7 @@ EOF
       - "$DOZZLE_PORT:8080"
     environment:
       - DOZZLE_TIMEOUT=15s
+      - DOZZLE_BASE=/logs
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     extra_hosts:
@@ -665,21 +666,44 @@ generate_traefik_dynamic() {
 http:
 EOF
 
-    # Ajout des sections si non vides
-    if [ -n "$routers" ]; then
+    # Ajout des routers
+    if [ -n "$routers" ] || [ "$DOZZLE_ENABLED" = "true" ]; then
         echo "  routers:$routers" >> "$TRAEFIK_DYNAMIC_FILE"
+
+        # Ajouter le router Dozzle si activé
+        if [ "$DOZZLE_ENABLED" = "true" ]; then
+            echo "    dozzle-logs:" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo '      rule: "PathPrefix(`/logs`)"' >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "      service: dozzle" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "      priority: 10" >> "$TRAEFIK_DYNAMIC_FILE"
+        fi
     fi
     
+    # Ajout des middlewares
     if [ -n "$middlewares" ]; then
         echo "" >> "$TRAEFIK_DYNAMIC_FILE"
         echo "  middlewares:$middlewares" >> "$TRAEFIK_DYNAMIC_FILE"
     fi
-    
-    if [ -n "$services" ]; then
+
+    # Ajout des services
+    if [ -n "$services" ] || [ "$DOZZLE_ENABLED" = "true" ]; then
         echo "" >> "$TRAEFIK_DYNAMIC_FILE"
         echo "  services:$services" >> "$TRAEFIK_DYNAMIC_FILE"
+
+        # Ajouter le service Dozzle si activé
+        if [ "$DOZZLE_ENABLED" = "true" ]; then
+            echo "    dozzle:" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "      loadBalancer:" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "        healthCheck:" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "          path: /logs" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "          interval: 5s" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "          timeout: 2s" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "        servers:" >> "$TRAEFIK_DYNAMIC_FILE"
+            echo '          - url: "http://dozzle:8080"' >> "$TRAEFIK_DYNAMIC_FILE"
+            echo "        passHostHeader: true" >> "$TRAEFIK_DYNAMIC_FILE"
+        fi
     fi
-    
+
     echo -e "\033[92m✅ traefik/dynamic.yml généré\033[0m"
 }
 
