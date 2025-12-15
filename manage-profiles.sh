@@ -199,6 +199,9 @@ get_shared_env_vars() {
                         # Fix: strip only the YAML list marker, preserve hyphens in values
                         var=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '\r')
                         shared_vars="${shared_vars}${var}"$'\n'
+                    elif echo "$line" | grep -qE "^[[:space:]]+#"; then
+                        # Skip comment lines within the list (at list item indentation or deeper)
+                        continue
                     else
                         in_group=false
                         if [ "$(echo "$line" | grep -c "^  [a-z]")" -eq 0 ]; then

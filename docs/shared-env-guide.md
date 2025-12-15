@@ -7,6 +7,7 @@ Le système de variables d'environnement partagées permet de définir des varia
 - 🌐 **URLs de services externes** - APIs, services d'authentification, passerelles
 - 🔧 **Configuration commune** - Log level, timezone, environnement
 - 📊 **Paramètres partagés** - Taille de pool, timeouts, limites
+- 🔗 **Référencement de variables** - Renommer ou adapter des variables existantes pour un service spécifique
 
 ## 🎯 Configuration
 
@@ -57,6 +58,111 @@ shared_env_config:
       - custom
     mon-frontend:
       - custom
+```
+
+## 🔗 Référencement de variables existantes
+
+### Utiliser une variable déjà définie
+
+Vous pouvez référencer une variable partagée existante pour la renommer ou l'adapter à un service spécifique. Docker Compose résoudra automatiquement la référence au runtime.
+
+#### Exemple : Renommer une variable pour un service
+
+```yaml
+shared_env:
+  # Variables globales
+  external_services:
+    - API_GATEWAY_URL=https://api.example.com
+    - AUTH_SERVICE_URL=https://auth.example.com
+  
+  # Variables spécifiques au service 'demo'
+  demo_only:
+    - DEMO_ONLY_VAR=demo-only-value
+    # Référencer une variable existante sous un autre nom
+    - DEMO_API_GATEWAY_URL=${API_GATEWAY_URL}
+    # Ou avec une valeur de fallback
+    - DEMO_AUTH_URL=${AUTH_SERVICE_URL:-https://auth.fallback.com}
+
+shared_env_config:
+  auto_inject:
+    - external_services
+  
+  service_specific:
+    demo:
+      - demo_only
+```
+
+**Résultat dans docker-compose.yml :**
+
+```yaml
+services:
+  demo:
+    environment:
+      # Variables partagées (depuis config.yml)
+      - API_GATEWAY_URL=https://api.example.com
+      - AUTH_SERVICE_URL=https://auth.example.com
+      - DEMO_ONLY_VAR=demo-only-value
+      - DEMO_API_GATEWAY_URL=${API_GATEWAY_URL}
+      # Variables du service (profil)
+      - ENVIRONMENT=docker-compose
+```
+
+Docker Compose remplacera `${API_GATEWAY_URL}` par `https://api.example.com` au démarrage du conteneur.
+
+#### Cas d'usage typiques
+
+**1. Adaptation d'URL pour un service legacy :**
+```yaml
+shared_env:
+  legacy_adapter:
+    # Le service legacy attend LEGACY_API_URL au lieu de API_GATEWAY_URL
+    - LEGACY_API_URL=${API_GATEWAY_URL}
+    - LEGACY_DB_HOST=${DATABASE_HOST}
+```
+
+**2. Préfixage pour isolation :**
+```yaml
+shared_env:
+  service_a_config:
+    # Préfixer toutes les variables pour ce service
+    - SERVICE_A_API=${API_GATEWAY_URL}
+    - SERVICE_A_AUTH=${AUTH_SERVICE_URL}
+```
+
+**3. Override conditionnel avec fallback :**
+```yaml
+shared_env:
+  dev_overrides:
+    # Utiliser une variable d'environnement système si définie, sinon la valeur partagée
+    - MY_API_URL=${OVERRIDE_API_URL:-${API_GATEWAY_URL}}
+```
+
+**4. Composition de valeurs :**
+```yaml
+shared_env:
+  composed:
+    # Créer une nouvelle variable à partir d'une existante
+    - FULL_API_URL=${API_GATEWAY_URL}/v1/api
+    - HEALTH_CHECK_URL=${API_GATEWAY_URL}/health
+```
+
+### ⚠️ Notes importantes
+
+1. **Ordre d'injection** : Les variables partagées sont injectées AVANT les variables du profil
+2. **Résolution Docker Compose** : La substitution `${VAR}` est effectuée par Docker Compose au runtime
+3. **Variables disponibles** : Seules les variables déjà définies plus haut dans la liste peuvent être référencées
+4. **Commentaires** : Les commentaires entre items de liste sont supportés et ignorés lors du parsing
+
+### 💡 Astuce : Voir les valeurs résolues
+
+Pour voir les valeurs finales après substitution :
+
+```bash
+# Afficher la configuration résolue d'un service
+docker compose config demo
+
+# Ou voir toutes les variables d'environnement dans le conteneur
+docker compose exec demo env | sort
 ```
 
 ## 🚀 Utilisation
@@ -340,4 +446,3 @@ Get-Content docker-compose.yml | Select-String "MA_VAR"
 - Support de groupes multiples
 - Support d'injection sélective par service
 - Support d'exclusion de services
-
