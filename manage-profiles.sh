@@ -17,12 +17,37 @@ DOZZLE_ENABLED=true
 DOZZLE_PORT=9999
 NAMESPACE="default"
 
-# Helper: prefer yq if available
+# Détection robuste de yq (mikefarah v4+)
 YQ_CMD=""
-# Temporarily disable yq due to version issues
-# if command -v yq >/dev/null 2>&1; then
-#     YQ_CMD="yq"
-# fi
+detect_yq() {
+    # Vérifier si yq est installé
+    if ! command -v yq >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Vérifier qu'il s'agit de mikefarah/yq (pas kislyuk/yq)
+    # mikefarah/yq a une commande 'eval' ou 'e', kislyuk n'en a pas
+    if yq --help 2>&1 | grep -q "eval"; then
+        # Vérifier la version (v4+)
+        local version
+        version=$(yq --version 2>&1 | grep -oP 'version [v]?\K[0-9]+' | head -1)
+        if [ -n "$version" ] && [ "$version" -ge 4 ]; then
+            YQ_CMD="yq"
+            return 0
+        fi
+    fi
+
+    # Si ce n'est pas mikefarah v4+, ne pas utiliser yq
+    return 1
+}
+
+# Activer yq si disponible et compatible
+if detect_yq; then
+    echo -e "\033[92m✓ yq (mikefarah v4+) détecté - parsing YAML robuste activé\033[0m" >&2
+else
+    echo -e "\033[93m⚠ yq non disponible ou version incompatible - utilisation du fallback sed/grep\033[0m" >&2
+    echo -e "\033[93m  Installez yq v4+ pour un parsing plus fiable: https://github.com/mikefarah/yq\033[0m" >&2
+fi
 
 # Charger la configuration
 load_config() {
@@ -392,12 +417,22 @@ EOF
 generate_docker_compose() {
     echo -e "\n\033[96m🔧 GÉNÉRATION DE docker-compose.yml\033[0m"
     echo -e "\033[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-    
+
     if [ ! -d "$PROFILES_DIR" ] || [ -z "$(ls -A $PROFILES_DIR/*.yml 2>/dev/null)" ]; then
         echo -e "\033[93mAucun profil trouvé\033[0m"
         return 1
     fi
-    
+
+    # Validation des profils avant génération
+    if [ -f "./validate-profiles.sh" ]; then
+        echo -e "\n\033[96m🔍 Validation des profils...\033[0m"
+        if ! bash ./validate-profiles.sh; then
+            echo -e "\n\033[91m❌ La validation a échoué. Corrigez les erreurs avant de générer.\033[0m"
+            return 1
+        fi
+        echo ""
+    fi
+
     load_config
     
     # Header avec timestamp
@@ -609,38 +644,56 @@ generate_traefik_dynamic() {
     # Générer les services pour chaque profil
     for profile in $PROFILES_DIR/*.yml; do
         [ -f "$profile" ] || continue
-        
-        # Rely on yq (jq wrapper) for parsing
+
+        # Parse avec yq si disponible, sinon fallback grep/sed
         local enabled
-        enabled=$(yq -r '.enabled // true' "$profile")
         local traefik_enabled
-        traefik_enabled=$(yq -r '.traefik.enabled // false' "$profile")
-        
-        if [ "$enabled" != "true" ] || [ "$traefik_enabled" != "true" ]; then
-            continue
-        fi
-
         local name
-        name=$(yq -r '.name' "$profile")
-        if [ "$name" = "null" ] || [ -z "$name" ]; then name=$(basename "$profile" .yml); fi
-
         local local_port
-        local_port=$(yq -r '.traefik.local_port // 80' "$profile")
-        
         local docker_port
-        docker_port=$(yq -r '.traefik.docker_port // 80' "$profile")
-
         local health_path
-        health_path=$(yq -r '.traefik.health_path // "/health"' "$profile")
-        
         local prefix
-        prefix=$(yq -r ".traefik.prefix // \"/$name\"" "$profile")
-        
         local strip_prefix
-        strip_prefix=$(yq -r '.traefik.strip_prefix // false' "$profile")
-        
         local priority
-        priority=$(yq -r '.traefik.priority // 10' "$profile")
+
+        if [ -n "$YQ_CMD" ]; then
+            # Parsing avec yq (mikefarah v4+)
+            enabled=$(yq e '.enabled // true' "$profile" 2>/dev/null)
+            traefik_enabled=$(yq e '.traefik.enabled // false' "$profile" 2>/dev/null)
+
+            if [ "$enabled" != "true" ] || [ "$traefik_enabled" != "true" ]; then
+                continue
+            fi
+
+            name=$(yq e '.name' "$profile" 2>/dev/null)
+            [ "$name" = "null" ] || [ -z "$name" ] && name=$(basename "$profile" .yml)
+
+            local_port=$(yq e '.traefik.local_port // 80' "$profile" 2>/dev/null)
+            docker_port=$(yq e '.traefik.docker_port // 80' "$profile" 2>/dev/null)
+            health_path=$(yq e '.traefik.health_path // "/health"' "$profile" 2>/dev/null)
+            prefix=$(yq e ".traefik.prefix // \"/$name\"" "$profile" 2>/dev/null)
+            strip_prefix=$(yq e '.traefik.strip_prefix // false' "$profile" 2>/dev/null)
+            priority=$(yq e '.traefik.priority // 10' "$profile" 2>/dev/null)
+        else
+            # Fallback: parsing avec grep/sed
+            enabled=$(grep -m1 "^enabled:" "$profile" | sed 's/enabled: *//' | tr -d '\r' || echo "true")
+            traefik_enabled=$(grep -A 10 "^traefik:" "$profile" | grep "enabled:" | head -1 | sed 's/.*enabled: *//' | tr -d '\r' || echo "false")
+
+            if [ "$enabled" != "true" ] || [ "$traefik_enabled" != "true" ]; then
+                continue
+            fi
+
+            name=$(grep -m1 "^name:" "$profile" | sed 's/name: *//' | tr -d '\r')
+            [ -z "$name" ] && name=$(basename "$profile" .yml)
+
+            local_port=$(grep -A 10 "^traefik:" "$profile" | grep "local_port:" | head -1 | sed 's/.*local_port: *//' | tr -d '\r' || echo "80")
+            docker_port=$(grep -A 10 "^traefik:" "$profile" | grep "docker_port:" | head -1 | sed 's/.*docker_port: *//' | tr -d '\r' || echo "80")
+            health_path=$(grep -A 10 "^traefik:" "$profile" | grep "health_path:" | head -1 | sed 's/.*health_path: *//' | tr -d '\r' || echo "/health")
+            prefix=$(grep -A 10 "^traefik:" "$profile" | grep "prefix:" | head -1 | sed 's/.*prefix: *//' | tr -d '\r')
+            [ -z "$prefix" ] && prefix="/$name"
+            strip_prefix=$(grep -A 10 "^traefik:" "$profile" | grep "strip_prefix:" | head -1 | sed 's/.*strip_prefix: *//' | tr -d '\r' || echo "false")
+            priority=$(grep -A 10 "^traefik:" "$profile" | grep "priority:" | head -1 | sed 's/.*priority: *//' | tr -d '\r' || echo "10")
+        fi
 
         # --- Middleware ---
         local middleware_ref=""
