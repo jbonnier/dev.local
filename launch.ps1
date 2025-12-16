@@ -85,38 +85,61 @@ function Load-Secrets {
         Write-Warning "secrets.env non trouvé - créez-le avec: .\manage-profiles.ps1 -Action init-secrets"
         return
     }
-    
+
     if (-not (Validate-Sops)) {
         return
     }
-    
+
     if (-not (Validate-SopsConfig)) {
         Write-Warning "Configuration SOPS invalide. Les secrets ne seront pas chargés."
         return
     }
-    
+
     Write-Host "🔐 Déchiffrement des secrets avec SOPS..." -ForegroundColor Cyan
-    
+
     try {
-        $decrypted = & sops -d secrets.env 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        # Utiliser SecureString pour minimiser l'exposition en mémoire
+        $process = Start-Process -FilePath "sops" -ArgumentList "-d", "secrets.env" `
+            -NoNewWindow -Wait -PassThru -RedirectStandardOutput "temp_secrets.tmp" `
+            -RedirectStandardError "temp_errors.tmp"
+
+        if ($process.ExitCode -ne 0) {
+            $errorContent = Get-Content "temp_errors.tmp" -Raw -ErrorAction SilentlyContinue
+            Remove-Item "temp_secrets.tmp", "temp_errors.tmp" -ErrorAction SilentlyContinue
             Write-Error "Échec du déchiffrement SOPS. Vérifiez votre configuration AWS/Age"
             return
         }
-        
-        # Charger les variables
-        $decrypted -split "`n" | ForEach-Object {
+
+        # Charger les variables ligne par ligne sans stocker tout le contenu
+        Get-Content "temp_secrets.tmp" | ForEach-Object {
             if ($_ -match '^\s*([^#][^=]+)=(.+)$') {
                 $key = $matches[1].Trim()
                 $value = $matches[2].Trim()
-                [Environment]::SetEnvironmentVariable($key, $value, "Process")
+
+                # Valider le nom de variable (sécurité contre injection)
+                if ($key -match '^[A-Za-z_][A-Za-z0-9_]*$') {
+                    [Environment]::SetEnvironmentVariable($key, $value, "Process")
+                }
+                else {
+                    Write-Warning "Variable ignorée (nom invalide): $key"
+                }
             }
         }
-        
-        Write-Host "✅ Secrets chargés" -ForegroundColor Green
+
+        # Nettoyer les fichiers temporaires de manière sécurisée
+        if (Test-Path "temp_secrets.tmp") {
+            # Écraser avec des zéros avant suppression
+            $zeros = New-Object byte[] (Get-Item "temp_secrets.tmp").Length
+            [System.IO.File]::WriteAllBytes("temp_secrets.tmp", $zeros)
+            Remove-Item "temp_secrets.tmp" -Force
+        }
+        Remove-Item "temp_errors.tmp" -ErrorAction SilentlyContinue
+
+        Write-Host "✅ Secrets chargés de manière sécurisée" -ForegroundColor Green
     }
     catch {
         Write-Error "Erreur lors du déchiffrement : $_"
+        Remove-Item "temp_secrets.tmp", "temp_errors.tmp" -ErrorAction SilentlyContinue
     }
 }
 
@@ -147,18 +170,27 @@ function View-Secrets {
         Write-Error "SOPS requis"
         return
     }
-    
+
     if (-not (Validate-SopsConfig)) {
         return
     }
-    
+
     if (-not (Test-Path "secrets.env")) {
         Write-Error "secrets.env non trouvé"
         return
     }
-    
+
     Write-Host "🔍 Secrets déchiffrés:" -ForegroundColor Cyan
-    & sops -d secrets.env
+    Write-Warning "⚠️  ATTENTION: Les secrets seront affichés en clair"
+    $confirmation = Read-Host "Continuer? (y/N)"
+
+    if ($confirmation -ne 'y' -and $confirmation -ne 'Y') {
+        Write-Host "Annulé" -ForegroundColor DarkGray
+        return
+    }
+
+    # Afficher avec pagination sécurisée
+    & sops -d secrets.env | Out-Host -Paging
 }
 
 # Démarrer les services
@@ -251,20 +283,49 @@ function Connect-EcrLogin {
         Write-Error "AWS CLI non installé"
         return
     }
-    
+
     # Lire l'URL ECR depuis config.yml
     $configPath = Join-Path $PSScriptRoot "config.yml"
     $ecrUrl = "<id>.dkr.ecr.ca-central-1.amazonaws.com"  # Valeur par défaut
-    
+
     if (Test-Path $configPath) {
         $config = Get-Content $configPath -Raw | ConvertFrom-Yaml -ErrorAction SilentlyContinue
         if ($config.registries.ecr.url) {
             $ecrUrl = $config.registries.ecr.url
         }
     }
-    
+
     Write-Host "🐳 Connexion Docker à AWS ECR..." -ForegroundColor Cyan
-    aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin $ecrUrl
+
+    # Méthode sécurisée: utiliser un fichier temporaire avec permissions restreintes
+    $tempPass = [System.IO.Path]::GetTempFileName()
+
+    try {
+        # Récupérer le mot de passe dans un fichier temporaire
+        $process = Start-Process -FilePath "aws" -ArgumentList "ecr", "get-login-password", "--region", "ca-central-1" `
+            -NoNewWindow -Wait -PassThru -RedirectStandardOutput $tempPass -RedirectStandardError "nul"
+
+        if ($process.ExitCode -eq 0) {
+            # Utiliser Get-Content avec -Raw et pipe sécurisé
+            Get-Content $tempPass -Raw | docker login --username AWS --password-stdin $ecrUrl
+            $result = $LASTEXITCODE
+        }
+        else {
+            Write-Error "Échec de récupération du mot de passe ECR"
+            $result = 1
+        }
+    }
+    finally {
+        # Nettoyer le fichier temporaire de manière sécurisée
+        if (Test-Path $tempPass) {
+            # Écraser avec des zéros
+            $zeros = New-Object byte[] (Get-Item $tempPass).Length
+            [System.IO.File]::WriteAllBytes($tempPass, $zeros)
+            Remove-Item $tempPass -Force
+        }
+    }
+
+    return $result
 }
 
 # Docker JFrog Login

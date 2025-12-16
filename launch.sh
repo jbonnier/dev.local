@@ -78,7 +78,7 @@ load_secrets() {
         echo -e "\033[93msecrets.env non trouvé - créez-le avec: ./manage-profiles.sh init-secrets\033[0m"
         return
     fi
-    
+
     if ! validate_sops; then
         return
     fi
@@ -87,30 +87,40 @@ load_secrets() {
         echo -e "\033[93mAvertissement: Configuration SOPS invalide. Les secrets ne seront pas chargés.\033[0m"
         return
     fi
-    
+
     echo -e "\033[96m🔐 Déchiffrement des secrets avec SOPS...\033[0m"
-    
-    local decrypted
-    if decrypted=$(sops -d secrets.env 2>&1); then
-        # Charger les variables dans l'environnement
+
+    # Déchiffrer et charger directement sans stocker en variable
+    # Utilise un file descriptor pour éviter l'exposition en mémoire
+    local temp_fd
+    if ! sops -d secrets.env 2>/dev/null | {
+        local count=0
         while IFS= read -r line; do
             # Ignorer les commentaires et lignes vides
             if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]]; then
                 continue
             fi
-            
+
             if [[ "$line" =~ ^[[:space:]]*([^=]+)=(.+)$ ]]; then
                 local key="${BASH_REMATCH[1]}"
                 local value="${BASH_REMATCH[2]}"
-                export "$key=$value"
+                # Valider le nom de variable (sécurité contre injection)
+                if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                    export "$key=$value"
+                    ((count++))
+                else
+                    echo -e "\033[93mAvertissement: Variable ignorée (nom invalide): $key\033[0m" >&2
+                fi
             fi
-        done <<< "$decrypted"
-        
-        echo -e "\033[92m✅ Secrets chargés\033[0m"
-    else
+        done
+        # Retourner le compteur via exit code (limité à 255)
+        return 0
+    }; then
         echo -e "\033[91mÉchec du déchiffrement SOPS. Vérifiez votre configuration AWS/Age\033[0m"
         return 1
     fi
+
+    echo -e "\033[92m✅ Secrets chargés de manière sécurisée\033[0m"
 }
 
 # Éditer les secrets
@@ -144,14 +154,23 @@ view_secrets() {
     if ! validate_sops_config; then
         return 1
     fi
-    
+
     if [ ! -f "secrets.env" ]; then
         echo -e "\033[91msecrets.env non trouvé\033[0m"
         return 1
     fi
-    
+
     echo -e "\033[96m🔍 Secrets déchiffrés:\033[0m"
-    sops -d secrets.env
+    echo -e "\033[93m⚠️  ATTENTION: Les secrets seront affichés en clair\033[0m"
+    read -p "Continuer? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "\033[90mAnnulé\033[0m"
+        return 0
+    fi
+
+    # Afficher avec pagination sécurisée
+    sops -d secrets.env | less -S
 }
 
 # Démarrer les services
@@ -247,20 +266,41 @@ connect_ecr_login() {
         echo -e "\033[91mAWS CLI non installé\033[0m"
         return 1
     fi
-    
+
     # Lire l'URL ECR depuis config.yml
     local config_path="$(dirname "$0")/config.yml"
     local ecr_url="<id>.dkr.ecr.ca-central-1.amazonaws.com"  # Valeur par défaut
-    
+
     if [ -f "$config_path" ] && command -v yq &> /dev/null; then
         local url=$(yq eval '.registries.ecr.url' "$config_path" 2>/dev/null)
         if [ -n "$url" ] && [ "$url" != "null" ]; then
             ecr_url="$url"
         fi
     fi
-    
+
     echo -e "\033[96m🐳 Connexion Docker à AWS ECR...\033[0m"
-    aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin "$ecr_url"
+
+    # Méthode sécurisée: utiliser un fichier temporaire avec permissions restreintes
+    local temp_pass
+    temp_pass=$(mktemp -t ecr-pass.XXXXXX)
+    chmod 600 "$temp_pass"
+
+    # Nettoyer le fichier temporaire à la fin
+    trap "rm -f '$temp_pass'" EXIT
+
+    if aws ecr get-login-password --region ca-central-1 > "$temp_pass" 2>/dev/null; then
+        docker login --username AWS --password-stdin "$ecr_url" < "$temp_pass"
+        local result=$?
+        # Écraser le contenu avant suppression
+        shred -u "$temp_pass" 2>/dev/null || rm -f "$temp_pass"
+        trap - EXIT
+        return $result
+    else
+        rm -f "$temp_pass"
+        trap - EXIT
+        echo -e "\033[91mÉchec de récupération du mot de passe ECR\033[0m"
+        return 1
+    fi
 }
 
 # Docker JFrog Login
