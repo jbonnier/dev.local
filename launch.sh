@@ -2,7 +2,7 @@
 # Script principal de gestion des services Dev.Local 2.0
 # Gère le cycle de vie des services Docker avec support SOPS pour les secrets
 
-set -e
+# Note: set -e retiré car il empêche la gestion gracieuse des erreurs de SOPS
 
 COMMAND="${1:-start}"
 PROFILES=""
@@ -85,42 +85,45 @@ load_secrets() {
 
     if ! validate_sops_config; then
         echo -e "\033[93mAvertissement: Configuration SOPS invalide. Les secrets ne seront pas chargés.\033[0m"
-        return
+        return 0
     fi
 
     echo -e "\033[96m🔐 Déchiffrement des secrets avec SOPS...\033[0m"
 
-    # Déchiffrer et charger directement sans stocker en variable
-    # Utilise un file descriptor pour éviter l'exposition en mémoire
-    local temp_fd
-    if ! sops -d secrets.env 2>/dev/null | {
-        local count=0
-        while IFS= read -r line; do
-            # Ignorer les commentaires et lignes vides
-            if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]]; then
-                continue
-            fi
-
-            if [[ "$line" =~ ^[[:space:]]*([^=]+)=(.+)$ ]]; then
-                local key="${BASH_REMATCH[1]}"
-                local value="${BASH_REMATCH[2]}"
-                # Valider le nom de variable (sécurité contre injection)
-                if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-                    export "$key=$value"
-                    ((count++))
-                else
-                    echo -e "\033[93mAvertissement: Variable ignorée (nom invalide): $key\033[0m" >&2
-                fi
-            fi
-        done
-        # Retourner le compteur via exit code (limité à 255)
+    # Déchiffrer et charger - utiliser || true pour éviter que set -e n'arrête le script
+    local count=0
+    local sops_output
+    sops_output=$(sops -d secrets.env 2>&1) || {
+        echo -e "\033[91mÉchec du déchiffrement SOPS (code: $?)\033[0m"
+        echo -e "\033[93mVérifiez votre configuration AWS/Age\033[0m"
+        echo -e "\033[93mLes services démarreront sans secrets\033[0m"
         return 0
-    }; then
-        echo -e "\033[91mÉchec du déchiffrement SOPS. Vérifiez votre configuration AWS/Age\033[0m"
-        return 1
-    fi
+    }
 
-    echo -e "\033[92m✅ Secrets chargés de manière sécurisée\033[0m"
+    while IFS= read -r line; do
+        # Ignorer les commentaires et lignes vides
+        if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]]; then
+            continue
+        fi
+
+        if [[ "$line" =~ ^[[:space:]]*([^=]+)=(.+)$ ]]; then
+            local key="${BASH_REMATCH[1]}"
+            local value="${BASH_REMATCH[2]}"
+            # Valider le nom de variable (sécurité contre injection)
+            if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                export "$key=$value"
+                ((count++))
+            else
+                echo -e "\033[93mAvertissement: Variable ignorée (nom invalide): $key\033[0m" >&2
+            fi
+        fi
+    done <<< "$sops_output"
+
+    if [ $count -eq 0 ]; then
+        echo -e "\033[93mAucun secret trouvé dans secrets.env\033[0m"
+    else
+        echo -e "\033[92m✅ $count secret(s) chargé(s) de manière sécurisée\033[0m"
+    fi
 }
 
 # Éditer les secrets
@@ -142,6 +145,15 @@ edit_secrets() {
     
     echo -e "\033[96m📝 Ouverture de l'éditeur SOPS...\033[0m"
     sops secrets.env
+    local exit_code=$?
+
+    # SOPS retourne 200 si le fichier n'a pas été modifié, ce qui est normal
+    if [ $exit_code -eq 0 ] || [ $exit_code -eq 200 ]; then
+        return 0
+    else
+        echo -e "\033[91mErreur SOPS (code: $exit_code)\033[0m"
+        return $exit_code
+    fi
 }
 
 # Voir les secrets déchiffrés

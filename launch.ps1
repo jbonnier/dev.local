@@ -162,6 +162,16 @@ function Edit-Secrets {
     
     Write-Host "📝 Ouverture de l'éditeur SOPS..." -ForegroundColor Cyan
     & sops secrets.env
+
+    # SOPS retourne 200 si le fichier n'a pas été modifié, ce qui est normal
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 200) {
+        # Succès ou pas de modification
+        return
+    }
+    else {
+        Write-Error "Erreur SOPS (code: $LASTEXITCODE)"
+        exit $LASTEXITCODE
+    }
 }
 
 # Voir les secrets déchiffrés
