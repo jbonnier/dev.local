@@ -112,7 +112,8 @@ get_shared_env_vars() {
             [ -z "$grp" ] && continue
             # for each group, get the list under shared_env.<group>
             while IFS= read -r v; do
-                [ -n "$v" ] && shared_vars="$shared_vars$v"$'\n'
+                # Filtrer les valeurs vides et la chaîne littérale "[]"
+                [ -n "$v" ] && [ "$v" != "[]" ] && shared_vars="$shared_vars$v"$'\n'
             done < <(yq e ".shared_env.${grp}[]? // []" "$CONFIG_FILE" 2>/dev/null || true)
         done <<< "$groups"
 
