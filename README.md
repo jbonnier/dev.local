@@ -17,6 +17,8 @@ Un système modulaire et générique pour gérer des services Docker avec profil
 - [🐧 Support Linux/macOS](#-support-linuxmacos)
 - [🔒 Sécurité](#-sécurité)
 - [📚 Documentation complète](#-documentation-complète)
+- [🔧 Développement](#-développement)
+- [🤝 Contribution](#-contribution)
 - [📄 Licence](#-licence)
 
 ## 💡 À quoi sert Dev.Local ?
@@ -1068,13 +1070,66 @@ chmod +x *.sh
 - `secrets.env` (chiffré SOPS)
 - `config.yml`
 
+## 🔧 Développement
+
+### Conventional Commits
+
+**TOUS les commits doivent respecter la spécification [Conventional Commits](https://www.conventionalcommits.org/).**
+
+#### Format
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+#### Types de commits
+
+- **feat**: Nouvelle fonctionnalité
+- **fix**: Correction de bug
+- **docs**: Modifications de documentation uniquement
+- **style**: Changements de style (formatage, point-virgules manquants, etc.)
+- **refactor**: Refactorisation sans ajout de fonctionnalité ni correction de bug
+- **perf**: Amélioration des performances
+- **test**: Ajout ou modification de tests
+- **build**: Modifications du système de build ou des dépendances
+- **ci**: Modifications de la configuration CI/CD
+- **chore**: Autres modifications (maintenance, configuration, etc.)
+
+#### Exemples
+
+```bash
+feat(profiles): add support for custom healthcheck configuration
+fix(traefik): correct routing priority for dynamic routes
+docs(readme): update installation instructions for Linux
+refactor(launch): simplify service orchestration logic
+chore(deps): update Docker Compose to v2.24.0
+```
+
+#### Breaking Changes
+
+Pour les changements incompatibles, ajouter `BREAKING CHANGE:` dans le footer ou utiliser `!` après le type :
+
+```
+feat(api)!: remove deprecated v1 profile format
+
+BREAKING CHANGE: Profile format v1 is no longer supported.
+Users must migrate to v2 format using the migration script.
+```
+
 ## 🤝 Contribution
+
+### Workflow de contribution
 
 1. Créer un nouveau profil dans `profiles/`
 2. Tester :
    - Windows : `.\launch.ps1 -p mon-nouveau-service`
    - Linux : `./launch.sh --profile mon-nouveau-service start`
-3. Committer le profil (sans secrets!)
+3. **Important** : Les secrets doivent TOUJOURS être placés dans `secrets.env` (chiffré avec SOPS), jamais dans les profils ou autres fichiers versionnés
+4. Committer le profil en respectant le format Conventional Commits
 
 ## 📞 Support
 
